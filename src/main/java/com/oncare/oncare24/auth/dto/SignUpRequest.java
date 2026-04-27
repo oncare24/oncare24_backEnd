@@ -9,8 +9,8 @@ import jakarta.validation.constraints.Size;
 /**
  * 회원가입 요청.
  * <p>
- * - phone: 하이픈 없는 숫자만 (예: 01012345678). 010/011/016/017/018/019 모두 허용.
- * - password: 최소 8자 이상.
+ * - phone: 하이픈 없는 숫자만 (예: 01012345678).
+ * - password: 숫자 6자리 PIN (카카오뱅크/토스 표준, 시니어 진입장벽 완화).
  * - role: ELDER 또는 GUARDIAN.
  */
 public record SignUpRequest(
@@ -23,7 +23,10 @@ public record SignUpRequest(
         String phone,
 
         @NotBlank(message = "비밀번호는 필수입니다.")
-        @Size(min = 8, max = 64, message = "비밀번호는 8자 이상 64자 이하로 입력해주세요.")
+        @Pattern(
+                regexp = "^\\d{6}$",
+                message = "비밀번호는 숫자 6자리로 입력해주세요."
+        )
         String password,
 
         @NotBlank(message = "이름은 필수입니다.")

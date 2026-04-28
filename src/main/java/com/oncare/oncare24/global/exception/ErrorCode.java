@@ -74,7 +74,11 @@ public enum ErrorCode {
 
     // === 알림 (Step 8 골격, Step 10에서 확장) ===
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "N001", "알림을 찾을 수 없어요."),
-    NOTIFICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "N002", "이 알림에 접근할 권한이 없어요.");
+    NOTIFICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "N002", "이 알림에 접근할 권한이 없어요."),
+
+    // === 길안내 (V0xx) ===
+    NAVIGATION_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "V001", "길안내 서비스에 일시적 문제가 발생했습니다."),
+    NO_TRANSIT_ROUTE(HttpStatus.NOT_FOUND, "V002", "대중교통 경로를 찾을 수 없습니다. 거리가 너무 가까울 수 있어요.");
 // ↑ 마지막은 세미콜론
 
 

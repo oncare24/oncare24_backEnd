@@ -63,3 +63,13 @@ nmc:
   emergency-base-url: http://apis.data.go.kr/B552657/ErmctInfoInqireService
   timeout-seconds: 5
   mock: ${NMC_MOCK:true}
+
+# ===========================
+# TMAP
+# ===========================
+tmap:
+  app-key: ${TMAP_APP_KEY:}
+  pedestrian-url: https://apis.openapi.sk.com/tmap/routes/pedestrian
+  transit-url: https://apis.openapi.sk.com/transit/routes
+  timeout-seconds: 5
+  mock: ${TMAP_MOCK:true}

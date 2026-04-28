@@ -1,0 +1,86 @@
+package com.oncare.oncare24.navigation.dto;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+/**
+ * 길안내 한 단계.
+ * <p>
+ * 도보(walking)와 대중교통(transit) 응답에서 모두 같은 형식으로 사용.
+ * 타입에 따라 활용되는 필드가 다름:
+ *
+ * <ul>
+ *     <li><b>도보 카드 (WALK, STRAIGHT, TURN_*, CROSSWALK)</b>: distance, duration</li>
+ *     <li><b>버스 카드 (BUS)</b>: duration, busNumber, busType, boardingStop, alightingStop, stationsCount</li>
+ *     <li><b>지하철 카드 (SUBWAY)</b>: duration, lineNumber, lineColor, boardingStop, alightingStop, stationsCount</li>
+ *     <li><b>출발/도착 카드 (START, ARRIVAL)</b>: instruction만</li>
+ * </ul>
+ *
+ * 사용하지 않는 필드는 {@code @JsonInclude(NON_NULL)}로 응답에서 제외 → 깨끗한 JSON.
+ *
+ * @param type            카드 타입
+ * @param instruction     사용자에게 보여줄 안내 문구 (예: "120번 버스 탑승", "150m 직진")
+ * @param distance        구간 거리(m). 도보 카드에서 의미 있음
+ * @param duration        예상 소요시간(초)
+ * @param busNumber       버스 번호 (BUS 카드)
+ * @param busType         버스 종류 (간선/지선/광역/마을 등) (BUS 카드)
+ * @param lineNumber      지하철 호선 (SUBWAY 카드)
+ * @param lineColor       지하철 호선 색상 (SUBWAY 카드, hex 코드)
+ * @param boardingStop    탑승 정류장/역 (BUS, SUBWAY)
+ * @param alightingStop   하차 정류장/역 (BUS, SUBWAY)
+ * @param stationsCount   지나는 정거장 수 (BUS, SUBWAY)
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record NavigationCard(
+        NavigationCardType type,
+        String instruction,
+        Integer distance,
+        Integer duration,
+
+        // 버스 전용
+        String busNumber,
+        String busType,
+
+        // 지하철 전용
+        String lineNumber,
+        String lineColor,
+
+        // 대중교통 공통
+        String boardingStop,
+        String alightingStop,
+        Integer stationsCount
+) {
+
+    /** 도보 카드 빌더 (직진/좌회전/우회전/횡단 등) */
+    public static NavigationCard walk(NavigationCardType type, String instruction, int distance, int duration) {
+        return new NavigationCard(type, instruction, distance, duration,
+                null, null, null, null, null, null, null);
+    }
+
+    /** 출발 카드 */
+    public static NavigationCard start(String instruction) {
+        return new NavigationCard(NavigationCardType.START, instruction, 0, 0,
+                null, null, null, null, null, null, null);
+    }
+
+    /** 도착 카드 */
+    public static NavigationCard arrival(String instruction) {
+        return new NavigationCard(NavigationCardType.ARRIVAL, instruction, 0, 0,
+                null, null, null, null, null, null, null);
+    }
+
+    /** 버스 카드 */
+    public static NavigationCard bus(String instruction, int duration,
+                                     String busNumber, String busType,
+                                     String boardingStop, String alightingStop, int stations) {
+        return new NavigationCard(NavigationCardType.BUS, instruction, null, duration,
+                busNumber, busType, null, null, boardingStop, alightingStop, stations);
+    }
+
+    /** 지하철 카드 */
+    public static NavigationCard subway(String instruction, int duration,
+                                        String lineNumber, String lineColor,
+                                        String boardingStop, String alightingStop, int stations) {
+        return new NavigationCard(NavigationCardType.SUBWAY, instruction, null, duration,
+                null, null, lineNumber, lineColor, boardingStop, alightingStop, stations);
+    }
+}

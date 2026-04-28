@@ -18,23 +18,23 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 /**
  * TMAP API 실제 호출 구현체.
  * <p>
- * <b>TMAP Pedestrian API</b>: GeoJSON FeatureCollection 응답.
- * features 배열의 각 LineString/Point를 순회하며 turnType, description으로 카드 생성.
+ * <b>이번 버전 변경점</b>: 카드에 실제 도로 좌표(path)를 포함시켜
+ * 프론트(NaverMap)가 정확한 도로/노선을 따라 폴리라인을 그릴 수 있도록 함.
  *
- * <p><b>TMAP Transit API</b>: itineraries 배열 응답.
- * 첫 itinerary의 legs 배열을 순회하며 mode(WALK/BUS/SUBWAY)별로 카드 생성.
+ * <p><b>도보 (Pedestrian)</b>: GeoJSON FeatureCollection 응답.
+ * Point feature와 직후의 LineString feature가 짝을 이루어 카드 1장이 됨.
+ * LineString.geometry.coordinates를 카드의 path에 담음.
  *
- * <p><b>응답 구조 차이</b>:
- * <ul>
- *     <li>Pedestrian: properties.turnType (코드), properties.description (안내 문구)</li>
- *     <li>Transit: legs[].mode, legs[].route, legs[].start, legs[].end</li>
- * </ul>
+ * <p><b>대중교통 (Transit)</b>: itinerary.legs 배열 응답.
+ * 각 leg에 passShape.linestring (또는 passList) 형태로 좌표가 들어있음.
+ * "lon lat lon lat ..." 공백 구분 문자열을 파싱해 path에 담음.
  *
  * 활성화: {@code tmap.mock=false}
  */
@@ -92,8 +92,8 @@ public class RealTmapClient implements TmapClient {
                 "startY", request.startLat().toString(),
                 "endX", request.endLon().toString(),
                 "endY", request.endLat().toString(),
-                "count", 1,                          // 첫 번째 추천 경로만
-                "lang", 0,                           // 한국어
+                "count", 1,
+                "lang", 0,
                 "format", "json"
         );
 
@@ -108,7 +108,6 @@ public class RealTmapClient implements TmapClient {
 
         } catch (RestClientException e) {
             log.warn("[TMAP] transit API failed: {}", e.getMessage());
-            // 대중교통은 출발지/도착지가 너무 가까우면 "검색 결과 없음" 에러가 정상
             throw new CustomException(ErrorCode.NO_TRANSIT_ROUTE);
         }
     }
@@ -124,31 +123,46 @@ public class RealTmapClient implements TmapClient {
             int totalTime = 0;
             List<NavigationCard> cards = new ArrayList<>();
 
-            for (JsonNode feature : features) {
+            // Point feature와 다음 LineString feature를 짝지어 카드 생성
+            for (int i = 0; i < features.size(); i++) {
+                JsonNode feature = features.get(i);
                 JsonNode props = feature.path("properties");
                 JsonNode geometry = feature.path("geometry");
+                String geoType = geometry.path("type").asText();
 
-                // 첫 Point (출발지)에 totalDistance/totalTime이 들어있음
-                if (geometry.path("type").asText().equals("Point")
-                        && props.has("totalDistance")) {
-                    totalDistance = props.path("totalDistance").asInt();
-                    totalTime = props.path("totalTime").asInt();
+                if (!"Point".equals(geoType)) continue;
+
+                // totalDistance/totalTime은 첫 Point의 properties에 있음
+                if (props.has("totalDistance")) {
+                    totalDistance = props.path("totalDistance").asInt(0);
+                    totalTime = props.path("totalTime").asInt(0);
                 }
 
                 int turnType = props.path("turnType").asInt(-1);
                 String desc = props.path("description").asText("");
-                int dist = props.path("distance").asInt(0);
-                int time = props.path("time").asInt(0);
+
+                // 다음 LineString feature 찾기 (있으면 path/distance/time 가져옴)
+                List<List<Double>> path = null;
+                int dist = 0;
+                int time = 0;
+                if (i + 1 < features.size()) {
+                    JsonNode next = features.get(i + 1);
+                    if ("LineString".equals(next.path("geometry").path("type").asText())) {
+                        path = extractLineStringCoords(next.path("geometry").path("coordinates"));
+                        dist = next.path("properties").path("distance").asInt(0);
+                        time = next.path("properties").path("time").asInt(0);
+                    }
+                }
 
                 if (desc.isBlank()) continue;
 
-                NavigationCardType type = mapTurnType(turnType);
-                if (type == NavigationCardType.START) {
+                NavigationCardType cardType = mapTurnType(turnType);
+                if (cardType == NavigationCardType.START) {
                     cards.add(NavigationCard.start(desc));
-                } else if (type == NavigationCardType.ARRIVAL) {
+                } else if (cardType == NavigationCardType.ARRIVAL) {
                     cards.add(NavigationCard.arrival(endName + " 도착"));
                 } else {
-                    cards.add(NavigationCard.walk(type, desc, dist, time));
+                    cards.add(NavigationCard.walk(cardType, desc, dist, time, path));
                 }
             }
 
@@ -160,11 +174,18 @@ public class RealTmapClient implements TmapClient {
         }
     }
 
-    /**
-     * TMAP turnType 코드를 우리 enum으로 매핑.
-     * 주요 코드만 매핑, 나머지는 STRAIGHT로.
-     * 참고: TMAP API 문서 - turnType 코드표
-     */
+    /** GeoJSON LineString coordinates를 [[lon, lat], ...] 리스트로 변환. */
+    private List<List<Double>> extractLineStringCoords(JsonNode coordsNode) {
+        List<List<Double>> path = new ArrayList<>();
+        if (coordsNode == null || !coordsNode.isArray()) return path;
+        for (JsonNode pair : coordsNode) {
+            if (pair.isArray() && pair.size() >= 2) {
+                path.add(List.of(pair.get(0).asDouble(), pair.get(1).asDouble()));
+            }
+        }
+        return path;
+    }
+
     private NavigationCardType mapTurnType(int turnType) {
         return switch (turnType) {
             case 200 -> NavigationCardType.START;
@@ -183,8 +204,6 @@ public class RealTmapClient implements TmapClient {
     private TransitRouteResponse parseTransitResponse(String json, String endName) {
         try {
             JsonNode root = objectMapper.readTree(json);
-
-            // 응답 구조: metaData.plan.itineraries[0].legs[]
             JsonNode itinerary = root.path("metaData").path("plan").path("itineraries").path(0);
             if (itinerary.isMissingNode()) {
                 throw new CustomException(ErrorCode.NO_TRANSIT_ROUTE);
@@ -208,19 +227,22 @@ public class RealTmapClient implements TmapClient {
                 String startName = leg.path("start").path("name").asText("");
                 String endNameLeg = leg.path("end").path("name").asText("");
 
+                List<List<Double>> path = extractTransitLegPath(leg, mode);
+
                 switch (mode) {
                     case "WALK" -> {
                         String instruction = (endNameLeg.isBlank() ? "다음 정류장" : endNameLeg)
                                 + "까지 도보 " + distance + "m";
-                        cards.add(NavigationCard.walk(NavigationCardType.WALK, instruction, distance, sectionTime));
+                        cards.add(NavigationCard.walk(
+                                NavigationCardType.WALK, instruction, distance, sectionTime, path));
                     }
                     case "BUS" -> {
-                        String busNumber = leg.path("route").asText("").replaceAll("^.*?:", ""); // "버스:120" → "120"
+                        String busNumber = leg.path("route").asText("").replaceAll("^.*?:", "");
                         String busType = leg.path("type").asText("");
                         int stations = leg.path("stationCount").asInt(0);
                         String instruction = busNumber + "번 버스 탑승 (" + stations + "정거장)";
                         cards.add(NavigationCard.bus(instruction, sectionTime, busNumber, busType,
-                                startName, endNameLeg, stations));
+                                startName, endNameLeg, stations, path));
                     }
                     case "SUBWAY" -> {
                         String routeName = leg.path("route").asText("");
@@ -229,7 +251,7 @@ public class RealTmapClient implements TmapClient {
                         String instruction = routeName + " " + startName + " → " + endNameLeg
                                 + " (" + stations + "정거장)";
                         cards.add(NavigationCard.subway(instruction, sectionTime, lineNumber, null,
-                                startName, endNameLeg, stations));
+                                startName, endNameLeg, stations, path));
                     }
                     default -> log.debug("[TMAP] unknown mode: {}", mode);
                 }
@@ -243,6 +265,57 @@ public class RealTmapClient implements TmapClient {
         } catch (Exception e) {
             log.error("[TMAP] failed to parse transit response", e);
             throw new CustomException(ErrorCode.NAVIGATION_FAILED);
+        }
+    }
+
+    /**
+     * Transit leg에서 좌표 리스트 추출.
+     *
+     * <p>Transit 응답의 좌표는 두 가지 형태로 올 수 있음:
+     * <ul>
+     *     <li>WALK leg: steps[].linestring에 "lon,lat lon,lat ..." (공백 구분, 컴마 분리)</li>
+     *     <li>BUS/SUBWAY leg: passShape.linestring에 "lon,lat lon,lat ..." (같은 형태)</li>
+     * </ul>
+     */
+    private List<List<Double>> extractTransitLegPath(JsonNode leg, String mode) {
+        List<List<Double>> path = new ArrayList<>();
+        try {
+            String linestring = null;
+            if ("WALK".equals(mode)) {
+                // WALK leg는 steps 안에 여러 linestring이 있을 수 있음
+                JsonNode steps = leg.path("steps");
+                if (steps.isArray()) {
+                    for (JsonNode step : steps) {
+                        String ls = step.path("linestring").asText("");
+                        appendLinestring(path, ls);
+                    }
+                    return path;
+                }
+                linestring = leg.path("linestring").asText("");
+            } else {
+                // BUS/SUBWAY leg는 passShape.linestring
+                linestring = leg.path("passShape").path("linestring").asText("");
+            }
+            appendLinestring(path, linestring);
+        } catch (Exception e) {
+            log.debug("[TMAP] failed to extract transit path: {}", e.getMessage());
+        }
+        return path;
+    }
+
+    /** "lon,lat lon,lat ..." 형태의 문자열을 path 리스트에 append. */
+    private void appendLinestring(List<List<Double>> path, String linestring) {
+        if (linestring == null || linestring.isBlank()) return;
+        String[] points = linestring.trim().split("\\s+");
+        for (String point : points) {
+            String[] xy = point.split(",");
+            if (xy.length >= 2) {
+                try {
+                    double lon = Double.parseDouble(xy[0]);
+                    double lat = Double.parseDouble(xy[1]);
+                    path.add(List.of(lon, lat));
+                } catch (NumberFormatException ignored) {}
+            }
         }
     }
 }

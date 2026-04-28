@@ -73,3 +73,11 @@ tmap:
   transit-url: https://apis.openapi.sk.com/transit/routes
   timeout-seconds: 5
   mock: ${TMAP_MOCK:true}
+
+# ===========================
+# ODsay
+# ===========================
+odsay:
+  api-key: ${ODSAY_API_KEY}
+  base-url: https://api.odsay.com/v1/api
+  mock: ${ODSAY_MOCK:false}

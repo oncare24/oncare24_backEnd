@@ -15,6 +15,10 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 public class Oncare24Application {
 
 	public static void main(String[] args) {
+        // 디버그 - 확인 후 삭제 가능
+        System.out.println("OPENAI_API_KEY length: " +
+                (System.getenv("OPENAI_API_KEY") == null ? "NULL" : System.getenv("OPENAI_API_KEY").length()));
+        System.out.println("NMC_MOCK: " + System.getenv("NMC_MOCK"));
 		SpringApplication.run(Oncare24Application.class, args);
 	}
 

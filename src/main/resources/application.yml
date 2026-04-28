@@ -44,3 +44,22 @@ springdoc:
     operations-sorter: method
     display-request-duration: true
   default-produces-media-type: application/json
+
+# ===========================
+# OpenAI
+# ===========================
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  model: gpt-4o-mini
+  timeout-seconds: 15
+  enabled: ${OPENAI_ENABLED:true}
+
+# ===========================
+# 국립중앙의료원
+# ===========================
+nmc:
+  service-key: ${NMC_SERVICE_KEY:}
+  hospital-base-url: http://apis.data.go.kr/B552657/HsptlAsembySearchService
+  emergency-base-url: http://apis.data.go.kr/B552657/ErmctInfoInqireService
+  timeout-seconds: 5
+  mock: ${NMC_MOCK:true}

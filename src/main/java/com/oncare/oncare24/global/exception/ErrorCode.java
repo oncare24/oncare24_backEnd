@@ -42,10 +42,41 @@ public enum ErrorCode {
     REFRESH_TOKEN_NOT_FOUND(HttpStatus.UNAUTHORIZED, "A005", "리프레시 토큰을 찾을 수 없습니다."),
     REFRESH_TOKEN_MISMATCH(HttpStatus.UNAUTHORIZED, "A006", "리프레시 토큰이 일치하지 않습니다."),
 
-    // === 사용자 (Step 4~6에서 사용) ===
+    // === 사용자 ===
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "U001", "사용자를 찾을 수 없습니다."),
     DUPLICATE_EMAIL(HttpStatus.CONFLICT, "U002", "이미 사용 중인 이메일입니다."),
-    DUPLICATE_PHONE(HttpStatus.CONFLICT, "U003", "이미 사용 중인 전화번호입니다.");
+    DUPLICATE_PHONE(HttpStatus.CONFLICT, "U003", "이미 사용 중인 전화번호입니다."),
+
+
+    // === 보호자-피보호자 연동 (Step 7-A / Step 9) ===
+    NOT_LINKED_TO_WARD(HttpStatus.FORBIDDEN, "G001", "이 피보호자에 연결되지 않았어요."),
+    DUPLICATE_WARD_LINK(HttpStatus.CONFLICT, "G002", "이미 연동된 어르신이에요."),
+    PENDING_INVITATION_EXISTS(HttpStatus.CONFLICT, "G003", "이미 초대를 보냈어요. 수락을 기다려 주세요."),
+    WARD_NOT_FOUND_BY_PHONE(HttpStatus.NOT_FOUND, "G004", "이 번호로 가입한 어르신을 찾을 수 없어요."),
+    SELF_INVITE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "G005", "본인을 초대할 수는 없어요."),
+    INVITATION_NOT_FOUND(HttpStatus.NOT_FOUND, "G006", "초대를 찾을 수 없어요."),
+    INVITATION_EXPIRED(HttpStatus.GONE, "G007", "초대가 만료됐어요. 다시 보내주세요."),
+    INVITATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "G008", "이 초대에 접근할 권한이 없어요."),
+    INVITATION_ALREADY_RESPONDED(HttpStatus.CONFLICT, "G009", "이미 처리된 초대예요."),
+    ROLE_NOT_GUARDIAN(HttpStatus.FORBIDDEN, "G010", "보호자만 사용할 수 있어요."),
+    ROLE_NOT_ELDER(HttpStatus.FORBIDDEN, "G011", "어르신만 사용할 수 있어요."),
+
+    // === 안전 구역 (Step 7) ===
+    SAFETY_ZONE_NOT_FOUND(HttpStatus.NOT_FOUND, "S001", "안전구역을 찾을 수 없어요."),
+    SAFETY_ZONE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "S002", "안전구역은 최대 5개까지 등록할 수 있어요."),
+    SAFETY_ZONE_ACCESS_DENIED(HttpStatus.FORBIDDEN, "S003", "이 안전구역을 수정할 권한이 없어요."),
+    INVALID_ELDER(HttpStatus.BAD_REQUEST, "S004", "피보호자 정보가 올바르지 않아요."),
+
+    // === 위치/모니터링 (Step 8) ===
+    LOCATION_REPORT_FORBIDDEN(HttpStatus.FORBIDDEN, "L001", "본인의 위치만 보고할 수 있어요."),
+    LOCATION_NOT_FOUND(HttpStatus.NOT_FOUND, "L002", "위치 기록이 없어요."),
+    DEVICE_STATUS_NOT_FOUND(HttpStatus.NOT_FOUND, "L003", "단말 상태 정보를 찾을 수 없어요."),
+
+    // === 알림 (Step 8 골격, Step 10에서 확장) ===
+    NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "N001", "알림을 찾을 수 없어요."),
+    NOTIFICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "N002", "이 알림에 접근할 권한이 없어요.");
+// ↑ 마지막은 세미콜론
+
 
     private final HttpStatus status;
     private final String code;

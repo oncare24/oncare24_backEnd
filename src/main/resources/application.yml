@@ -71,3 +71,21 @@ kakao:
   rest-api-key: ${KAKAO_REST_API_KEY:}
   base-url: https://dapi.kakao.com
   timeout-seconds: 5
+
+# ===========================
+# TMAP
+# ===========================
+tmap:
+  app-key: ${TMAP_APP_KEY:}
+  pedestrian-url: https://apis.openapi.sk.com/tmap/routes/pedestrian
+  transit-url: https://apis.openapi.sk.com/transit/routes
+  timeout-seconds: 5
+  mock: ${TMAP_MOCK:true}
+
+# ===========================
+# ODsay
+# ===========================
+odsay:
+  api-key: ${ODSAY_API_KEY}
+  base-url: https://api.odsay.com/v1/api
+  mock: ${ODSAY_MOCK:false}

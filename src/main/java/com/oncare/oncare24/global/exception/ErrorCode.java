@@ -77,8 +77,11 @@ public enum ErrorCode {
     NOTIFICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "N002", "이 알림에 접근할 권한이 없어요."),
 
     // === 카카오 로컬 검색 (Step 11) ===
-    KAKAO_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "K001", "주소 검색에 실패했어요. 잠시 후 다시 시도해주세요.");
-// ↑ 마지막은 세미콜론
+    KAKAO_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "K001", "주소 검색에 실패했어요. 잠시 후 다시 시도해주세요."),
+
+    // === 길안내 (V0xx) ===
+    NAVIGATION_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "V001", "길안내 서비스에 일시적 문제가 발생했습니다."),
+    NO_TRANSIT_ROUTE(HttpStatus.NOT_FOUND, "V002", "대중교통 경로를 찾을 수 없습니다. 거리가 너무 가까울 수 있어요.");
 // ↑ 마지막은 세미콜론
 
 

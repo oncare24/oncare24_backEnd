@@ -65,6 +65,14 @@ nmc:
   mock: ${NMC_MOCK:true}
 
 # ===========================
+# Kakao Local API
+# ===========================
+kakao:
+  rest-api-key: ${KAKAO_REST_API_KEY:}
+  base-url: https://dapi.kakao.com
+  timeout-seconds: 5
+
+# ===========================
 # TMAP
 # ===========================
 tmap:

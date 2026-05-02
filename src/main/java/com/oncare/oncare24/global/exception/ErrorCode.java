@@ -74,7 +74,11 @@ public enum ErrorCode {
 
     // === 알림 (Step 8 골격, Step 10에서 확장) ===
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "N001", "알림을 찾을 수 없어요."),
-    NOTIFICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "N002", "이 알림에 접근할 권한이 없어요.");
+    NOTIFICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "N002", "이 알림에 접근할 권한이 없어요."),
+
+    // === 카카오 로컬 검색 (Step 11) ===
+    KAKAO_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "K001", "주소 검색에 실패했어요. 잠시 후 다시 시도해주세요.");
+// ↑ 마지막은 세미콜론
 // ↑ 마지막은 세미콜론
 
 

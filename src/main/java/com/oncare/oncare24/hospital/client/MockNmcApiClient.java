@@ -39,33 +39,8 @@ public class MockNmcApiClient implements NmcApiClient {
                         latitude + (Math.random() - 0.5) * 0.02,
                         longitude + (Math.random() - 0.5) * 0.02,
                         deptDesc,
-                        false,
-                        null,
                         i % 2 == 0 ? "0900" : "0830",
                         i % 2 == 0 ? "1800" : "1730"
-                ))
-                .toList();
-    }
-
-    @Override
-    public List<HospitalInfo> searchEmergencyRooms(
-            double latitude, double longitude, int radiusMeters) {
-        log.info("[Mock NMC] searchEmergencyRooms lat={}, lon={}, radius={}m",
-                latitude, longitude, radiusMeters);
-
-        return IntStream.rangeClosed(1, 3)
-                .mapToObj(i -> new HospitalInfo(
-                        "MOCK_ER_" + i,
-                        "테스트 응급의료센터 " + i + "호",
-                        "서울특별시 종로구 응급로 " + (i * 21),
-                        "02-9999-" + String.format("%04d", i * 2222),
-                        latitude + (Math.random() - 0.5) * 0.03,
-                        longitude + (Math.random() - 0.5) * 0.03,
-                        "응급의학과",
-                        true,
-                        i,  // 1=권역, 2=지역응급의료센터, 3=지역응급의료기관
-                        null,
-                        null
                 ))
                 .toList();
     }

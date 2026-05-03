@@ -30,15 +30,4 @@ public interface NmcApiClient {
      */
     List<HospitalInfo> searchHospitals(
             double latitude, double longitude, int radiusMeters, Department department);
-
-    /**
-     * 위치 기반 응급의료기관 검색.
-     *
-     * @param latitude     사용자 위도
-     * @param longitude    사용자 경도
-     * @param radiusMeters 검색 반경(미터)
-     * @return 응급의료기관 리스트. 못 찾으면 빈 리스트.
-     */
-    List<HospitalInfo> searchEmergencyRooms(
-            double latitude, double longitude, int radiusMeters);
 }

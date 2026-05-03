@@ -23,12 +23,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 국립중앙의료원 API 실제 호출 구현체.
+ * 국립중앙의료원 API 실제 호출 구현체 (병의원 검색).
  * <p>
- * <b>이번 버전 변경점</b>:
+ * <b>응답 처리</b>:
  * <ul>
- *     <li>QD(진료과) 파라미터 제거 — NMC dgsbjtCd와 우리 Department.code 매핑 가능성 이슈로
- *         우선 시도(Q0)만으로 검색하고 진료과 필터링은 클라이언트 사이드</li>
+ *     <li>QD(진료과) 파라미터는 NMC dgsbjtCd 매핑 검증 이슈로 비활성. 시도(Q0)만으로 검색하고
+ *         진료과 필터링은 클라이언트 사이드 (DepartmentNameMatcher)에서 수행.</li>
  *     <li>응답 본문 일부 로깅 — 진단 가시성 확보</li>
  *     <li>ClassCastException 방어 — body/items 노드가 String일 수 있음(에러 응답)</li>
  * </ul>
@@ -74,32 +74,10 @@ public class RealNmcApiClient implements NmcApiClient {
         if (sido != null) {
             builder.queryParam("Q0", urlEncode(sido));
         }
-        // QD(진료과 코드) 일단 제거 - 매핑 검증 후 다시 활성화
+        // QD(진료과 코드) 일단 제거 - 매핑 검증 후 다시 활성화. 진료과 필터링은 DepartmentNameMatcher에서 처리.
 
         URI uri = builder.build(true).toUri();
-        List<HospitalInfo> all = callAndParse(uri, false);
-        return filterByDistance(all, latitude, longitude, radiusMeters);
-    }
-
-    @Override
-    public List<HospitalInfo> searchEmergencyRooms(
-            double latitude, double longitude, int radiusMeters) {
-
-        String sido = KoreanRegionMapper.resolve(latitude, longitude);
-        log.info("[NMC] ER search: ({}, {}) → sido={}", latitude, longitude, sido);
-
-        UriComponentsBuilder builder = UriComponentsBuilder
-                .fromHttpUrl(properties.emergencyBaseUrl() + "/getEgytListInfoInqire")
-                .queryParam("serviceKey", properties.serviceKey())
-                .queryParam("numOfRows", NMC_PAGE_SIZE)
-                .queryParam("pageNo", 1);
-
-        if (sido != null) {
-            builder.queryParam("Q0", urlEncode(sido));
-        }
-
-        URI uri = builder.build(true).toUri();
-        List<HospitalInfo> all = callAndParse(uri, true);
+        List<HospitalInfo> all = callAndParse(uri);
         return filterByDistance(all, latitude, longitude, radiusMeters);
     }
 
@@ -108,7 +86,7 @@ public class RealNmcApiClient implements NmcApiClient {
     }
 
     @SuppressWarnings("unchecked")
-    private List<HospitalInfo> callAndParse(URI uri, boolean isEmergency) {
+    private List<HospitalInfo> callAndParse(URI uri) {
         try {
             byte[] rawBytes = restClient.get().uri(uri).retrieve().body(byte[].class);
             if (rawBytes == null || rawBytes.length == 0) {
@@ -171,7 +149,7 @@ public class RealNmcApiClient implements NmcApiClient {
             List<Map<String, Object>> rawItems = normalizeItemNode(itemNode);
 
             List<HospitalInfo> result = rawItems.stream()
-                    .map(item -> mapToHospitalInfo(item, isEmergency))
+                    .map(this::mapToHospitalInfo)
                     .filter(Optional::isPresent)
                     .map(Optional::get)
                     .toList();
@@ -196,7 +174,7 @@ public class RealNmcApiClient implements NmcApiClient {
         return Collections.emptyList();
     }
 
-    private Optional<HospitalInfo> mapToHospitalInfo(Map<String, Object> item, boolean isEmergency) {
+    private Optional<HospitalInfo> mapToHospitalInfo(Map<String, Object> item) {
         try {
             String latStr = stringValue(item, "wgs84Lat");
             String lonStr = stringValue(item, "wgs84Lon");
@@ -206,16 +184,6 @@ public class RealNmcApiClient implements NmcApiClient {
             double lat = Double.parseDouble(latStr);
             double lon = Double.parseDouble(lonStr);
 
-            Integer ercls = null;
-            if (isEmergency) {
-                String erclsStr = stringValue(item, "dutyEmcls");
-                if (!erclsStr.isBlank()) {
-                    try {
-                        ercls = Integer.parseInt(erclsStr);
-                    } catch (NumberFormatException ignored) {}
-                }
-            }
-
             return Optional.of(new HospitalInfo(
                     stringValue(item, "hpid"),
                     stringValue(item, "dutyName"),
@@ -224,10 +192,8 @@ public class RealNmcApiClient implements NmcApiClient {
                     lat,
                     lon,
                     stringValue(item, "dgidIdName"),
-                    isEmergency,
-                    ercls,
-                    isEmergency ? null : stringValue(item, "dutyTime1s"),
-                    isEmergency ? null : stringValue(item, "dutyTime1c")
+                    stringValue(item, "dutyTime1s"),
+                    stringValue(item, "dutyTime1c")
             ));
         } catch (Exception e) {
             log.debug("[NMC] skip malformed item: {}", e.getMessage());

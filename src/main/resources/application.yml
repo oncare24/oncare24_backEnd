@@ -60,7 +60,6 @@ openai:
 nmc:
   service-key: ${NMC_SERVICE_KEY:}
   hospital-base-url: http://apis.data.go.kr/B552657/HsptlAsembySearchService
-  emergency-base-url: http://apis.data.go.kr/B552657/ErmctInfoInqireService
   timeout-seconds: 5
   mock: ${NMC_MOCK:true}
 

@@ -79,6 +79,9 @@ public enum ErrorCode {
     // === 카카오 로컬 검색 (Step 11) ===
     KAKAO_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "K001", "주소 검색에 실패했어요. 잠시 후 다시 시도해주세요."),
 
+    // === SOS 긴급 호출 (Step 12) ===
+    SOS_THROTTLED(HttpStatus.TOO_MANY_REQUESTS, "R001", "방금 호출했어요. 잠시 후 다시 눌러주세요."),
+    SOS_LOCATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "R002", "위치 정보가 없어 호출할 수 없어요. 위치 권한을 확인해주세요."),
     // === 길안내 (V0xx) ===
     NAVIGATION_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "V001", "길안내 서비스에 일시적 문제가 발생했습니다."),
     NO_TRANSIT_ROUTE(HttpStatus.NOT_FOUND, "V002", "대중교통 경로를 찾을 수 없습니다. 거리가 너무 가까울 수 있어요.");

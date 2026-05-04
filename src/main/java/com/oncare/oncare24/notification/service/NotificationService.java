@@ -109,6 +109,85 @@ public class NotificationService {
         boolean fcmOk = fcmSender.send(ward.getFcmToken(), title, body);
         history.markFcmSent(fcmOk, LocalDateTime.now());
     }
+
+    /**
+     * SOS 긴급 호출 알림. SosService.trigger()가 호출.
+     * <p>
+     * <b>본문 차별화</b>: ZONE_EXIT보다 더 강한 표현. 좌표 정보가 있으면 "현재 위치와 함께 보호자에게 알렸어요" 식으로
+     * 받는 보호자가 즉각 인지 가능하도록.
+     *
+     * <b>FCM data payload</b>: 보호자 앱이 알림 탭 시 SosLocationView로 자동 라우팅하기 위해
+     * eventId, wardId, latitude, longitude를 함께 전달. 클라이언트의 expo-notifications
+     * response listener가 이 데이터를 읽어 화면 이동 처리.
+     *
+     * <b>NotificationHistory.sosEventId</b>: 알림센터 카드 탭 시(인앱 흐름) 같은 라우팅을 가능하게 하는 키.
+     *
+     * @param wardId         호출자 (피보호자)
+     * @param wardName       알림 본문에 들어갈 피보호자 이름
+     * @param sosEventId     방금 저장된 SosEvent의 ID
+     * @param latitude       호출 좌표 위도 (없을 수 있음)
+     * @param longitude      호출 좌표 경도 (없을 수 있음)
+     * @return 실제 발송된 보호자 수
+     */
+    @Transactional
+    public int notifySosBroadcast(
+            Long wardId,
+            String wardName,
+            Long sosEventId,
+            java.math.BigDecimal latitude,
+            java.math.BigDecimal longitude
+    ) {
+        boolean hasLocation = latitude != null && longitude != null;
+
+        String title = "긴급 호출";
+        String body = hasLocation
+                ? String.format("%s님이 긴급 호출을 보냈어요. 위치를 확인해주세요.", wardName)
+                : String.format("%s님이 긴급 호출을 보냈어요. 즉시 연락해보세요.", wardName);
+
+        List<GuardianWard> links = guardianWardRepository
+                .findByWardIdAndStatus(wardId, GuardianWardStatus.ACCEPTED);
+
+        if (links.isEmpty()) {
+            log.warn("[NOTIFY-SOS-SKIP] ward {} has no accepted guardians.", wardId);
+            return 0;
+        }
+
+        // FCM data payload — 보호자 앱이 알림 탭 시 라우팅 정보로 사용
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "SOS");
+        dataPayload.put("eventId", String.valueOf(sosEventId));
+        dataPayload.put("wardId", String.valueOf(wardId));
+        if (hasLocation) {
+            dataPayload.put("latitude", latitude.toPlainString());
+            dataPayload.put("longitude", longitude.toPlainString());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        int sent = 0;
+        for (GuardianWard link : links) {
+            User guardian = userRepository.findById(link.getGuardianId()).orElse(null);
+            if (guardian == null) continue;
+
+            NotificationHistory history = NotificationHistory.builder()
+                    .recipientId(guardian.getId())
+                    .wardId(wardId)
+                    .type(NotificationType.SOS)
+                    .title(title)
+                    .body(body)
+                    .relatedZoneId(null)
+                    .sosEventId(sosEventId)
+                    .build();
+            history = historyRepository.save(history);
+
+            boolean fcmOk = fcmSender.send(guardian.getFcmToken(), title, body, dataPayload);
+            history.markFcmSent(fcmOk, now);
+            sent++;
+
+            log.info("[NOTIFY-SOS] historyId={}, guardianId={}, fcmOk={}",
+                    history.getId(), guardian.getId(), fcmOk);
+        }
+        return sent;
+    }
     // ============================================================
     // 공통 발행 로직
     // ============================================================

@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+
 /**
  * Firebase Admin SDK 기반 FCM 발송 구현체.
  * <p>
@@ -23,11 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <b>토큰 무효화 처리</b>: FCM 서버가 UNREGISTERED / INVALID_ARGUMENT 응답하면
  * 해당 토큰을 가진 유저의 fcm_token 컬럼을 null 로 정리.
- * 이렇게 하지 않으면 매 발송마다 같은 무효 토큰으로 실패가 누적됨.
  *
- * <b>트랜잭션 분리</b>: 토큰 정리는 NotificationService 의 트랜잭션과 분리(REQUIRES_NEW).
- * 알림 이력 저장과 토큰 정리는 별개 관심사이고, 토큰 정리 실패가 알림 이력 저장을
- * 롤백시키면 안 됨.
+ * <b>data payload</b>: putAllData()로 모든 키-값을 함께 발송. 보호자 앱이 알림 탭 시
+ * onResponseReceived에서 이 페이로드를 읽어 어디로 라우팅할지 결정 (예: type=SOS면 SosLocationView로).
  */
 @Slf4j
 @Component
@@ -40,23 +40,33 @@ public class FirebaseFcmSender implements FcmSender {
 
     @Override
     public boolean send(String fcmToken, String title, String body) {
+        return send(fcmToken, title, body, FcmSender.emptyData());
+    }
+
+    @Override
+    public boolean send(String fcmToken, String title, String body, Map<String, String> data) {
         if (fcmToken == null || fcmToken.isBlank()) {
             log.warn("[FCM-SKIP] no token. title={}, body={}", title, body);
             return false;
         }
 
-        Message message = Message.builder()
+        Message.Builder builder = Message.builder()
                 .setToken(fcmToken)
                 .setNotification(Notification.builder()
                         .setTitle(title)
                         .setBody(body)
-                        .build())
-                .build();
+                        .build());
+
+        if (data != null && !data.isEmpty()) {
+            builder.putAllData(data);
+        }
 
         try {
-            String messageId = firebaseMessaging.send(message);
-            log.info("[FCM-SEND] success. messageId={}, token={}...",
-                    messageId, fcmToken.substring(0, Math.min(8, fcmToken.length())));
+            String messageId = firebaseMessaging.send(builder.build());
+            log.info("[FCM-SEND] success. messageId={}, token={}..., dataKeys={}",
+                    messageId,
+                    fcmToken.substring(0, Math.min(8, fcmToken.length())),
+                    data == null ? 0 : data.size());
             return true;
         } catch (FirebaseMessagingException e) {
             MessagingErrorCode errorCode = e.getMessagingErrorCode();
@@ -64,14 +74,12 @@ public class FirebaseFcmSender implements FcmSender {
                     errorCode, e.getMessage(),
                     fcmToken.substring(0, Math.min(8, fcmToken.length())));
 
-            // 토큰이 무효 → DB 에서 제거
             if (errorCode == MessagingErrorCode.UNREGISTERED
                     || errorCode == MessagingErrorCode.INVALID_ARGUMENT) {
                 invalidateToken(fcmToken);
             }
             return false;
         } catch (Exception e) {
-            // 네트워크 일시 오류 등 — 토큰은 유효할 수 있으니 정리 안 함
             log.error("[FCM-SEND] unexpected error. token={}..., message={}",
                     fcmToken.substring(0, Math.min(8, fcmToken.length())), e.getMessage());
             return false;

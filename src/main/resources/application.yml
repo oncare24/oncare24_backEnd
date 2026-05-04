@@ -72,6 +72,23 @@ kakao:
   timeout-seconds: 5
 
 # ===========================
+# FCM (Firebase Cloud Messaging)
+# ===========================
+fcm:
+  enabled: ${FCM_ENABLED:true}
+  credentials-path: ${FCM_CREDENTIALS_PATH:./firebase/service-account.json}
+  project-id: ${FCM_PROJECT_ID:bosalphim}
+
+# ===========================
+# SMS (SOLAPI)
+# ===========================
+sms:
+  enabled: ${SMS_ENABLED:false}
+  api-key: ${SMS_API_KEY:}
+  api-secret: ${SMS_API_SECRET:}
+  from: ${SMS_FROM:}
+  base-url: https://api.solapi.com
+# ===========================
 # TMAP
 # ===========================
 tmap:

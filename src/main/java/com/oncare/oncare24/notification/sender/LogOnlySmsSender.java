@@ -1,13 +1,16 @@
 package com.oncare.oncare24.notification.sender;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * Step 8용 SMS 골격 구현체. Step 10에서 CoolSMS 구현체로 교체.
+ * sms.enabled=false (또는 미설정) 일 때 등록되는 폴백 구현체.
+ * 로컬 개발에서 SOLAPI 키 없이도 앱이 뜨도록 해줌.
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "sms.enabled", havingValue = "false", matchIfMissing = true)
 public class LogOnlySmsSender implements SmsSender {
 
     @Override
@@ -16,7 +19,7 @@ public class LogOnlySmsSender implements SmsSender {
             log.warn("[SMS-SKIP] no phone. body={}", body);
             return false;
         }
-        log.info("[SMS-SEND] phone={}, body={}", maskPhone(phoneNumber), body);
+        log.info("[SMS-SEND-MOCK] phone={}, body={}", maskPhone(phoneNumber), body);
         return true;
     }
 

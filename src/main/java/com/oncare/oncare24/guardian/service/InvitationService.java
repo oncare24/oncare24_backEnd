@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.oncare.oncare24.guardian.dto.ReceivedInvitationResponse;
 import java.time.LocalDateTime;
 import java.util.List;
-
+import com.oncare.oncare24.notification.service.NotificationService;
 /**
  * 보호자-피보호자 초대 비즈니스 로직.
  * <p>
@@ -54,7 +54,7 @@ public class InvitationService {
     private final UserRepository userRepository;
     private final InviteCodeGenerator inviteCodeGenerator;
     private final SmsSender smsSender;
-
+    private final NotificationService notificationService;
     // ============================================================
     // CREATE
     // ============================================================
@@ -71,6 +71,7 @@ public class InvitationService {
                 .orElseGet(() -> createNewInvitation(currentUserId, ward.getId(), req.relationship()));
 
         sendInvitationSms(ward.getPhone(), guardian.getName());
+        notificationService.notifyWardInvitation(ward.getId(), guardian.getName());
 
         log.info("[Invitation-Create] guardianId={}, wardId={}, status={}, code={}",
                 currentUserId, ward.getId(), invitation.getStatus(), invitation.getInviteCode());

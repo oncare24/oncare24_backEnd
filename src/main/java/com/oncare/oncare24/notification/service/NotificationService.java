@@ -73,6 +73,42 @@ public class NotificationService {
         broadcastToGuardians(wardId, NotificationType.DEVICE_DISCONNECTED, title, body, null);
     }
 
+    /**
+     * 보호자→피보호자 초대 알림.
+     * <p>
+     * <b>호출 시점</b>: InvitationService.create()에서 초대가 PENDING으로 발행되거나 reInvite된 직후.
+     *
+     * <b>broadcastToGuardians와 다른 이유</b>:
+     * <ul>
+     *     <li>수신자가 ACCEPTED 보호자가 아니라 특정 피보호자 1명</li>
+     *     <li>아직 매칭이 ACCEPTED가 아닌 상태 (PENDING)</li>
+     * </ul>
+     * 그래서 별도 진입점.
+     */
+    @Transactional
+    public void notifyWardInvitation(Long wardId, String guardianName) {
+        User ward = userRepository.findById(wardId).orElse(null);
+        if (ward == null) {
+            log.warn("[NOTIFY-SKIP] ward {} not found for invitation notification", wardId);
+            return;
+        }
+
+        String title = "새 보호자 초대";
+        String body = String.format("%s님이 보호자가 되고 싶어해요. 받은 초대에서 확인해 주세요.", guardianName);
+
+        NotificationHistory history = NotificationHistory.builder()
+                .recipientId(wardId)
+                .wardId(wardId)            // 자기 자신이 ward인 케이스. 의미상 wardId=recipientId.
+                .type(NotificationType.WARD_INVITATION)
+                .title(title)
+                .body(body)
+                .relatedZoneId(null)
+                .build();
+        history = historyRepository.save(history);
+
+        boolean fcmOk = fcmSender.send(ward.getFcmToken(), title, body);
+        history.markFcmSent(fcmOk, LocalDateTime.now());
+    }
     // ============================================================
     // 공통 발행 로직
     // ============================================================

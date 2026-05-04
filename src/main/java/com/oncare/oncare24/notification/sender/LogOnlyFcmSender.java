@@ -2,6 +2,7 @@ package com.oncare.oncare24.notification.sender;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 /**
  * Step 8용 FCM 골격 구현체.
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "fcm.enabled", havingValue = "false", matchIfMissing = false)
 public class LogOnlyFcmSender implements FcmSender {
 
     @Override

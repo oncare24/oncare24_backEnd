@@ -53,3 +53,6 @@ Thumbs.db
 ### Spring Boot ###
 HELP.md
 .gradle/
+
+firebase/
+*.firebase-adminsdk*.json

@@ -60,6 +60,10 @@ dependencies {
 	testImplementation 'org.springframework.security:spring-security-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
+	// === Firebase Admin SDK (FCM) ===
+	implementation 'com.google.firebase:firebase-admin:9.4.3'
+	// === SOLAPI Java SDK (SMS) ===
+	implementation 'net.nurigo:sdk:4.2.7'
     // === NMC API XML ===
     implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml'
 }

@@ -19,9 +19,11 @@ import java.time.LocalDateTime;
  *     <li>보호자 앱 내 배너/알림센터 데이터 소스 (read_at 기준)</li>
  * </ol>
  *
- * <b>읽음 처리</b>
- * <p>
- * 보호자가 앱에서 알림을 탭하면 read_at 기록. 이 시점부터 SMS 에스컬레이션 대상에서 제외.
+ * <b>type별 부가 데이터 컬럼 (nullable)</b>
+ * <ul>
+ *     <li>{@code relatedZoneId} — ZONE_EXIT일 때 어느 zone인지</li>
+ *     <li>{@code sosEventId} — SOS일 때 어느 호출 이벤트인지. 보호자가 알림 탭 시 SosLocationView 라우팅 키로 사용</li>
+ * </ul>
  *
  * <b>인덱스 두 개</b>
  * <ul>
@@ -50,7 +52,7 @@ public class NotificationHistory extends BaseTimeEntity {
     @Column(name = "recipient_id", nullable = false)
     private Long recipientId;
 
-    /** 관련 피보호자 (있다면). ZONE_EXIT/DEVICE_DISCONNECTED는 항상 채움. */
+    /** 관련 피보호자 (있다면). ZONE_EXIT/DEVICE_DISCONNECTED/SOS는 항상 채움. */
     @Column(name = "ward_id")
     private Long wardId;
 
@@ -67,6 +69,10 @@ public class NotificationHistory extends BaseTimeEntity {
     /** ZONE_EXIT일 때 어느 zone인지. 다른 type은 null. */
     @Column(name = "related_zone_id")
     private Long relatedZoneId;
+
+    /** SOS일 때 어느 SosEvent인지. 다른 type은 null. 보호자 라우팅 키. */
+    @Column(name = "sos_event_id")
+    private Long sosEventId;
 
     @Column(name = "fcm_sent_at")
     private LocalDateTime fcmSentAt;
@@ -92,7 +98,8 @@ public class NotificationHistory extends BaseTimeEntity {
             NotificationType type,
             String title,
             String body,
-            Long relatedZoneId
+            Long relatedZoneId,
+            Long sosEventId
     ) {
         this.recipientId = recipientId;
         this.wardId = wardId;
@@ -100,6 +107,7 @@ public class NotificationHistory extends BaseTimeEntity {
         this.title = title;
         this.body = body;
         this.relatedZoneId = relatedZoneId;
+        this.sosEventId = sosEventId;
     }
 
     // === 비즈니스 메서드 ===

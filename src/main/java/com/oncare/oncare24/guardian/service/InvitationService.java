@@ -12,6 +12,7 @@ import com.oncare.oncare24.notification.sender.SmsSender;
 import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
+import com.oncare.oncare24.security.envelope.KeyEnvelopeProvisionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -55,6 +56,7 @@ public class InvitationService {
     private final InviteCodeGenerator inviteCodeGenerator;
     private final SmsSender smsSender;
     private final NotificationService notificationService;
+    private final KeyEnvelopeProvisionService keyEnvelopeProvisionService;
     // ============================================================
     // CREATE
     // ============================================================
@@ -158,6 +160,7 @@ public class InvitationService {
 
         User guardian = userRepository.findById(invitation.getGuardianId())
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+        keyEnvelopeProvisionService.provisionForAcceptedGuardian(currentUserId, guardian.getId());
 
         log.info("[Invitation-Accept] invitationId={}, wardId={}, guardianId={}",
                 invitationId, currentUserId, guardian.getId());

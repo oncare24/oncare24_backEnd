@@ -88,6 +88,11 @@ sms:
   api-secret: ${SMS_API_SECRET:}
   from: ${SMS_FROM:}
   base-url: https://api.solapi.com
+
+oncare:
+  security:
+    crypto:
+      enabled: ${ONCARE_SECURITY_CRYPTO_ENABLED:false}
 # ===========================
 # TMAP
 # ===========================

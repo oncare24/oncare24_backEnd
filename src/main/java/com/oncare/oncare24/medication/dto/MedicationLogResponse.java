@@ -25,4 +25,16 @@ public record MedicationLogResponse(
                 log.getCreatedAt()
         );
     }
+
+    public static MedicationLogResponse from(MedicationLog log, MedicationLogPayload payload) {
+        return new MedicationLogResponse(
+                log.getId(),
+                log.getWardId(),
+                log.getScheduleId(),
+                payload.medicationName(),
+                payload.takenAt(),
+                payload.logSource(),
+                log.getCreatedAt()
+        );
+    }
 }

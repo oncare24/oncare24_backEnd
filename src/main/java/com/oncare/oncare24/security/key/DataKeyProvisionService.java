@@ -38,6 +38,14 @@ public class DataKeyProvisionService {
         return new ProvisionedDataKey(keyId, dataKey);
     }
 
+    public ProvisionedDataKey getDataKey(String keyId) {
+        if (keyId == null || keyId.isBlank()) {
+            throw new IllegalArgumentException("keyId must not be blank");
+        }
+        Map<String, Object> data = openBaoKvClient.get(dataKeyPath(keyId));
+        return new ProvisionedDataKey(keyId, decodeRequiredBase64(data, "data_key_b64"));
+    }
+
     private static String todayKeyId() {
         return "datakey-" + LocalDate.now(SEOUL);
     }

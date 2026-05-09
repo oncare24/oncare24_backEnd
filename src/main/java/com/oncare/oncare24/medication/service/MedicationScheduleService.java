@@ -1,10 +1,14 @@
 package com.oncare.oncare24.medication.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.medication.dto.CreateMedicationScheduleRequest;
+import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
 import com.oncare.oncare24.medication.dto.MedicationScheduleResponse;
 import com.oncare.oncare24.medication.dto.UpdateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
@@ -17,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -26,6 +32,7 @@ public class MedicationScheduleService {
     private final MedicationScheduleRepository medicationScheduleRepository;
     private final GuardianWardRepository guardianWardRepository;
     private final UserRepository userRepository;
+    private final EncryptedSourceEventService encryptedSourceEventService;
 
     @Transactional
     public MedicationScheduleResponse create(Long currentUserId, CreateMedicationScheduleRequest request) {
@@ -35,15 +42,23 @@ public class MedicationScheduleService {
 
         MedicationSchedule schedule = MedicationSchedule.builder()
                 .wardId(request.wardId())
-                .medicationName(request.medicationName())
-                .scheduledTime(request.scheduledTime())
-                .allowedEarlyMinutes(request.allowedEarlyMinutes())
-                .allowedDelayMinutes(request.allowedDelayMinutes())
-                .scheduleType(request.scheduleType())
-                .dayOfWeek(request.dayOfWeek())
                 .build();
 
-        return MedicationScheduleResponse.from(medicationScheduleRepository.save(schedule));
+        MedicationSchedule saved = medicationScheduleRepository.save(schedule);
+        MedicationSchedulePayload payload = schedulePayload(
+                "CREATED",
+                saved.getId(),
+                request.medicationName(),
+                request.scheduledTime(),
+                request.allowedEarlyMinutes(),
+                request.allowedDelayMinutes(),
+                request.scheduleType(),
+                request.dayOfWeek(),
+                true
+        );
+        EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(saved, payload);
+        saved.linkEncryptedActivityLog(encryptedLog.getId());
+        return MedicationScheduleResponse.from(saved, payload);
     }
 
     @Transactional(readOnly = true)
@@ -76,21 +91,26 @@ public class MedicationScheduleService {
         MedicationSchedule schedule = getScheduleOrThrow(scheduleId);
         assertCanAccessWard(currentUserId, schedule.getWardId());
 
-        schedule.update(
-                request.medicationName(),
-                request.scheduledTime(),
-                request.allowedEarlyMinutes(),
-                request.allowedDelayMinutes(),
-                request.scheduleType(),
-                request.dayOfWeek()
-        );
         if (Boolean.TRUE.equals(request.active())) {
             schedule.activate();
         } else {
             schedule.deactivate();
         }
 
-        return MedicationScheduleResponse.from(schedule);
+        MedicationSchedulePayload payload = schedulePayload(
+                "UPDATED",
+                schedule.getId(),
+                request.medicationName(),
+                request.scheduledTime(),
+                request.allowedEarlyMinutes(),
+                request.allowedDelayMinutes(),
+                request.scheduleType(),
+                request.dayOfWeek(),
+                schedule.isActive()
+        );
+        EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(schedule, payload);
+        schedule.linkEncryptedActivityLog(encryptedLog.getId());
+        return MedicationScheduleResponse.from(schedule, payload);
     }
 
     @Transactional
@@ -99,6 +119,57 @@ public class MedicationScheduleService {
         assertCanAccessWard(currentUserId, schedule.getWardId());
 
         schedule.deactivate();
+        MedicationSchedulePayload payload = schedulePayload(
+                "DEACTIVATED",
+                schedule.getId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false
+        );
+        EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(schedule, payload);
+        schedule.linkEncryptedActivityLog(encryptedLog.getId());
+    }
+
+    private EncryptedActivityLog saveEncryptedScheduleEvent(MedicationSchedule schedule, MedicationSchedulePayload payload) {
+        LocalDateTime occurredAt = payload.scheduledTime() != null
+                ? LocalDateTime.of(LocalDate.now(), payload.scheduledTime())
+                : LocalDateTime.now();
+        return encryptedSourceEventService.saveRequiredSourceEvent(
+                schedule.getWardId(),
+                ActivityEventType.MEDICATION_EVENT,
+                "medication_schedule",
+                schedule.getId(),
+                occurredAt,
+                payload
+        );
+    }
+
+    private MedicationSchedulePayload schedulePayload(
+            String action,
+            Long scheduleId,
+            String medicationName,
+            java.time.LocalTime scheduledTime,
+            Integer allowedEarlyMinutes,
+            Integer allowedDelayMinutes,
+            MedicationScheduleType scheduleType,
+            java.time.DayOfWeek dayOfWeek,
+            boolean active
+    ) {
+        return new MedicationSchedulePayload(
+                action,
+                scheduleId,
+                medicationName,
+                scheduledTime,
+                allowedEarlyMinutes != null ? allowedEarlyMinutes : 10,
+                allowedDelayMinutes != null ? allowedDelayMinutes : 30,
+                scheduleType,
+                dayOfWeek,
+                active
+        );
     }
 
     private MedicationSchedule getScheduleOrThrow(Long scheduleId) {

@@ -103,6 +103,78 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    public byte[] encryptPackage(
+            byte[] dataKey,
+            String keyId,
+            byte[] plaintext,
+            long userId,
+            byte[] userPublicKey,
+            long guardianId,
+            byte[] guardianPublicKey
+    ) {
+        requireDataKey(dataKey);
+        if (keyId == null || keyId.isBlank()) {
+            throw new IllegalArgumentException("keyId must not be blank");
+        }
+        if (plaintext == null) {
+            throw new IllegalArgumentException("plaintext must not be null");
+        }
+        requireNonEmpty(userPublicKey, "userPublicKey");
+        requireNonEmpty(guardianPublicKey, "guardianPublicKey");
+        Pointer handle = createFacade();
+        try {
+            long createdAt = Instant.now().getEpochSecond();
+            long expiresAt = createdAt + DATA_KEY_TTL_SECONDS;
+            CryptoFfiNative.BorrowedArg keyIdArg = CryptoFfiNative.BorrowedArg.utf8(keyId);
+            CryptoFfiNative.BorrowedArg plaintextArg = CryptoFfiNative.BorrowedArg.of(plaintext);
+            CryptoFfiNative.BorrowedArg userPublicKeyArg = CryptoFfiNative.BorrowedArg.of(userPublicKey);
+            CryptoFfiNative.BorrowedArg guardianPublicKeyArg = CryptoFfiNative.BorrowedArg.of(guardianPublicKey);
+
+            CryptoFfiNative.FfiEncryptPackageRequest.ByReference request =
+                    new CryptoFfiNative.FfiEncryptPackageRequest.ByReference();
+            request.plaintext = plaintextArg.asStruct();
+            request.user_id = userId;
+            request.user_public_key = userPublicKeyArg.asStruct();
+            request.guardian_id = guardianId;
+            request.guardian_public_key = guardianPublicKeyArg.asStruct();
+            request.data_key = dataKeyInput(keyIdArg, dataKey, createdAt, expiresAt);
+
+            return callBytes(out -> lib.crypto_ffi_encrypt_package(handle, request, out));
+        } finally {
+            check(lib.crypto_ffi_facade_free(handle), "crypto_ffi_facade_free failed");
+        }
+    }
+
+    public byte[] decryptPackage(
+            byte[] encryptedPackage,
+            long callerId,
+            int callerType,
+            byte[] privateKey
+    ) {
+        if (encryptedPackage == null || encryptedPackage.length == 0) {
+            throw new IllegalArgumentException("encryptedPackage must not be empty");
+        }
+        if (privateKey == null || privateKey.length == 0) {
+            throw new IllegalArgumentException("privateKey must not be empty");
+        }
+        Pointer handle = createFacade();
+        try {
+            CryptoFfiNative.BorrowedArg packageArg = CryptoFfiNative.BorrowedArg.of(encryptedPackage);
+            CryptoFfiNative.BorrowedArg privateKeyArg = CryptoFfiNative.BorrowedArg.of(privateKey);
+
+            CryptoFfiNative.FfiDecryptPackageRequest.ByReference request =
+                    new CryptoFfiNative.FfiDecryptPackageRequest.ByReference();
+            request.package_ = packageArg.asStruct();
+            request.caller_id = callerId;
+            request.caller_type = callerType;
+            request.private_key = privateKeyArg.asStruct();
+
+            return callBytes(out -> lib.crypto_ffi_decrypt_package(handle, request, out));
+        } finally {
+            check(lib.crypto_ffi_facade_free(handle), "crypto_ffi_facade_free failed");
+        }
+    }
+
     public byte[] openKeyEnvelope(
             byte[] envelopeJson,
             String callerId,
@@ -179,6 +251,12 @@ public class JnaCryptoFfiClient {
                     "data key must be exactly " + DATA_KEY_LENGTH_BYTES
                             + " bytes, got " + (dataKey == null ? "null" : dataKey.length)
             );
+        }
+    }
+
+    private static void requireNonEmpty(byte[] value, String fieldName) {
+        if (value == null || value.length == 0) {
+            throw new IllegalArgumentException(fieldName + " must not be empty");
         }
     }
 

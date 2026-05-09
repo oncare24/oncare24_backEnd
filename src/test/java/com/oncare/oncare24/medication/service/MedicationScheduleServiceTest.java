@@ -1,9 +1,13 @@
 package com.oncare.oncare24.medication.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.medication.dto.CreateMedicationScheduleRequest;
+import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
 import com.oncare.oncare24.medication.dto.MedicationScheduleResponse;
 import com.oncare.oncare24.medication.dto.UpdateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
@@ -15,6 +19,7 @@ import com.oncare.oncare24.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -25,6 +30,10 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +53,9 @@ class MedicationScheduleServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private EncryptedSourceEventService encryptedSourceEventService;
+
     private MedicationScheduleService medicationScheduleService;
 
     @BeforeEach
@@ -51,15 +63,24 @@ class MedicationScheduleServiceTest {
         medicationScheduleService = new MedicationScheduleService(
                 medicationScheduleRepository,
                 guardianWardRepository,
-                userRepository
+                userRepository,
+                encryptedSourceEventService
         );
     }
 
     @Test
     void create_succeedsForDailyScheduleByElderSelf() {
         stubUser(WARD_ID, UserRole.ELDER);
-        when(medicationScheduleRepository.save(org.mockito.ArgumentMatchers.any(MedicationSchedule.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(medicationScheduleRepository.save(any(MedicationSchedule.class)))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                eq(SCHEDULE_ID),
+                any(),
+                any()
+        )).thenReturn(encryptedLog(900L));
 
         MedicationScheduleResponse response = medicationScheduleService.create(
                 WARD_ID,
@@ -69,6 +90,33 @@ class MedicationScheduleServiceTest {
         assertThat(response.wardId()).isEqualTo(WARD_ID);
         assertThat(response.scheduleType()).isEqualTo(MedicationScheduleType.DAILY);
         assertThat(response.active()).isTrue();
+
+        ArgumentCaptor<MedicationSchedule> scheduleCaptor = ArgumentCaptor.forClass(MedicationSchedule.class);
+        verify(medicationScheduleRepository).save(scheduleCaptor.capture());
+        MedicationSchedule savedSchedule = scheduleCaptor.getValue();
+        assertThat(savedSchedule.getMedicationName()).isNull();
+        assertThat(savedSchedule.getScheduledTime()).isNull();
+        assertThat(savedSchedule.getAllowedEarlyMinutes()).isNull();
+        assertThat(savedSchedule.getAllowedDelayMinutes()).isNull();
+        assertThat(savedSchedule.getScheduleType()).isNull();
+        assertThat(savedSchedule.getDayOfWeek()).isNull();
+        assertThat(savedSchedule.getEncryptedActivityLogId()).isEqualTo(900L);
+
+        ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(encryptedSourceEventService).saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                eq(SCHEDULE_ID),
+                any(),
+                payloadCaptor.capture()
+        );
+        MedicationSchedulePayload capturedPayload = (MedicationSchedulePayload) payloadCaptor.getValue();
+        assertThat(capturedPayload.action()).isEqualTo("CREATED");
+        assertThat(capturedPayload.scheduleId()).isEqualTo(SCHEDULE_ID);
+        assertThat(capturedPayload.medicationName()).isEqualTo("morning pill");
+        assertThat(capturedPayload.scheduledTime()).isEqualTo(LocalTime.of(8, 0));
+        assertThat(capturedPayload.allowedDelayMinutes()).isEqualTo(30);
     }
 
     @Test
@@ -76,6 +124,14 @@ class MedicationScheduleServiceTest {
         stubUser(WARD_ID, UserRole.ELDER);
         when(medicationScheduleRepository.save(org.mockito.ArgumentMatchers.any(MedicationSchedule.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                any(),
+                any(),
+                any()
+        )).thenReturn(encryptedLog(901L));
 
         MedicationScheduleResponse response = medicationScheduleService.create(
                 WARD_ID,
@@ -84,6 +140,39 @@ class MedicationScheduleServiceTest {
 
         assertThat(response.scheduleType()).isEqualTo(MedicationScheduleType.WEEKLY);
         assertThat(response.dayOfWeek()).isEqualTo(DayOfWeek.MONDAY);
+    }
+
+    @Test
+    void create_throwsAndLeavesScheduleUnlinkedWhenRequiredEncryptionFails() {
+        stubUser(WARD_ID, UserRole.ELDER);
+        when(medicationScheduleRepository.save(any(MedicationSchedule.class)))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                eq(SCHEDULE_ID),
+                any(),
+                any()
+        )).thenThrow(new IllegalStateException("crypto disabled"));
+
+        assertThatThrownBy(() -> medicationScheduleService.create(
+                WARD_ID,
+                createRequest(MedicationScheduleType.DAILY, null)
+        )).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("crypto disabled");
+
+        ArgumentCaptor<MedicationSchedule> scheduleCaptor = ArgumentCaptor.forClass(MedicationSchedule.class);
+        verify(medicationScheduleRepository).save(scheduleCaptor.capture());
+        MedicationSchedule savedSchedule = scheduleCaptor.getValue();
+        assertThat(savedSchedule.getMedicationName()).isNull();
+        assertThat(savedSchedule.getScheduledTime()).isNull();
+        assertThat(savedSchedule.getAllowedEarlyMinutes()).isNull();
+        assertThat(savedSchedule.getAllowedDelayMinutes()).isNull();
+        assertThat(savedSchedule.getScheduleType()).isNull();
+        assertThat(savedSchedule.getDayOfWeek()).isNull();
+        assertThat(savedSchedule.getEncryptedActivityLogId()).isNull();
+        verifyNoMoreInteractions(medicationScheduleRepository);
     }
 
     @Test
@@ -131,6 +220,14 @@ class MedicationScheduleServiceTest {
         MedicationSchedule schedule = schedule();
         stubUser(WARD_ID, UserRole.ELDER);
         when(medicationScheduleRepository.findById(SCHEDULE_ID)).thenReturn(Optional.of(schedule));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                eq(SCHEDULE_ID),
+                any(),
+                any()
+        )).thenReturn(encryptedLog(902L));
 
         MedicationScheduleResponse response = medicationScheduleService.update(
                 WARD_ID,
@@ -150,6 +247,13 @@ class MedicationScheduleServiceTest {
         assertThat(response.allowedEarlyMinutes()).isEqualTo(5);
         assertThat(response.allowedDelayMinutes()).isEqualTo(60);
         assertThat(response.active()).isFalse();
+        assertThat(schedule.getMedicationName()).isNull();
+        assertThat(schedule.getScheduledTime()).isNull();
+        assertThat(schedule.getAllowedEarlyMinutes()).isNull();
+        assertThat(schedule.getAllowedDelayMinutes()).isNull();
+        assertThat(schedule.getScheduleType()).isNull();
+        assertThat(schedule.getDayOfWeek()).isNull();
+        assertThat(schedule.getEncryptedActivityLogId()).isEqualTo(902L);
     }
 
     @Test
@@ -157,6 +261,14 @@ class MedicationScheduleServiceTest {
         MedicationSchedule schedule = schedule();
         stubUser(WARD_ID, UserRole.ELDER);
         when(medicationScheduleRepository.findById(SCHEDULE_ID)).thenReturn(Optional.of(schedule));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                eq(SCHEDULE_ID),
+                any(),
+                any()
+        )).thenReturn(encryptedLog(903L));
 
         medicationScheduleService.deactivate(WARD_ID, SCHEDULE_ID);
 
@@ -209,11 +321,6 @@ class MedicationScheduleServiceTest {
     private MedicationSchedule schedule() {
         MedicationSchedule schedule = MedicationSchedule.builder()
                 .wardId(WARD_ID)
-                .medicationName("morning pill")
-                .scheduledTime(LocalTime.of(8, 0))
-                .allowedEarlyMinutes(10)
-                .allowedDelayMinutes(30)
-                .scheduleType(MedicationScheduleType.DAILY)
                 .build();
         ReflectionTestUtils.setField(schedule, "id", SCHEDULE_ID);
         return schedule;
@@ -235,5 +342,25 @@ class MedicationScheduleServiceTest {
 
         when(userRepository.findById(currentUserId)).thenReturn(Optional.of(currentUser));
         when(userRepository.findById(WARD_ID)).thenReturn(Optional.of(ward));
+    }
+
+    private MedicationSchedule withId(MedicationSchedule schedule, Long id) {
+        ReflectionTestUtils.setField(schedule, "id", id);
+        return schedule;
+    }
+
+    private EncryptedActivityLog encryptedLog(Long id) {
+        EncryptedActivityLog log = EncryptedActivityLog.builder()
+                .wardId(WARD_ID)
+                .dataKeyId("datakey-test")
+                .eventType(ActivityEventType.MEDICATION_EVENT)
+                .sourceTable("medication_schedule")
+                .sourceId(SCHEDULE_ID)
+                .occurredAt(java.time.LocalDateTime.now())
+                .encryptedPackage(new byte[]{1, 2, 3})
+                .aadJson("{}")
+                .build();
+        ReflectionTestUtils.setField(log, "id", id);
+        return log;
     }
 }

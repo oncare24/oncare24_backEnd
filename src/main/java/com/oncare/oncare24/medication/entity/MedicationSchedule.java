@@ -44,6 +44,9 @@ public class MedicationSchedule extends BaseTimeEntity {
     @Column(name = "ward_id", nullable = false)
     private Long wardId;
 
+    @Column(name = "encrypted_activity_log_id")
+    private Long encryptedActivityLogId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "ward_id",
@@ -53,22 +56,22 @@ public class MedicationSchedule extends BaseTimeEntity {
     )
     private User ward;
 
-    @Column(name = "medication_name", nullable = false, length = 100)
+    @Column(name = "medication_name", length = 100)
     private String medicationName;
 
-    @Column(name = "scheduled_time", nullable = false)
+    @Column(name = "scheduled_time")
     private LocalTime scheduledTime;
 
     @ColumnDefault("10")
-    @Column(name = "allowed_early_minutes", nullable = false)
+    @Column(name = "allowed_early_minutes")
     private Integer allowedEarlyMinutes;
 
     @ColumnDefault("30")
-    @Column(name = "allowed_delay_minutes", nullable = false)
+    @Column(name = "allowed_delay_minutes")
     private Integer allowedDelayMinutes;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "schedule_type", nullable = false, length = 20)
+    @Column(name = "schedule_type", length = 20)
     private MedicationScheduleType scheduleType;
 
     @Enumerated(EnumType.STRING)
@@ -82,6 +85,7 @@ public class MedicationSchedule extends BaseTimeEntity {
     @Builder
     private MedicationSchedule(
             Long wardId,
+            Long encryptedActivityLogId,
             String medicationName,
             LocalTime scheduledTime,
             Integer allowedEarlyMinutes,
@@ -90,29 +94,14 @@ public class MedicationSchedule extends BaseTimeEntity {
             DayOfWeek dayOfWeek
     ) {
         this.wardId = wardId;
+        this.encryptedActivityLogId = encryptedActivityLogId;
         this.medicationName = medicationName;
         this.scheduledTime = scheduledTime;
-        this.allowedEarlyMinutes = allowedEarlyMinutes != null ? allowedEarlyMinutes : 10;
-        this.allowedDelayMinutes = allowedDelayMinutes != null ? allowedDelayMinutes : 30;
+        this.allowedEarlyMinutes = allowedEarlyMinutes;
+        this.allowedDelayMinutes = allowedDelayMinutes;
         this.scheduleType = scheduleType;
         this.dayOfWeek = dayOfWeek;
         this.active = true;
-    }
-
-    public void update(
-            String medicationName,
-            LocalTime scheduledTime,
-            Integer allowedEarlyMinutes,
-            Integer allowedDelayMinutes,
-            MedicationScheduleType scheduleType,
-            DayOfWeek dayOfWeek
-    ) {
-        this.medicationName = medicationName;
-        this.scheduledTime = scheduledTime;
-        this.allowedEarlyMinutes = allowedEarlyMinutes != null ? allowedEarlyMinutes : 10;
-        this.allowedDelayMinutes = allowedDelayMinutes != null ? allowedDelayMinutes : 30;
-        this.scheduleType = scheduleType;
-        this.dayOfWeek = dayOfWeek;
     }
 
     public void deactivate() {
@@ -121,5 +110,9 @@ public class MedicationSchedule extends BaseTimeEntity {
 
     public void activate() {
         this.active = true;
+    }
+
+    public void linkEncryptedActivityLog(Long encryptedActivityLogId) {
+        this.encryptedActivityLogId = encryptedActivityLogId;
     }
 }

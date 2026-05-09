@@ -1,5 +1,7 @@
 package com.oncare.oncare24.location.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
 import com.oncare.oncare24.location.dto.LocationReportRequest;
@@ -20,6 +22,8 @@ import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.location.dto.LastLocationResponse;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 위치 보고 진입 도메인 서비스.
@@ -49,6 +53,7 @@ public class LocationReportService {
     private final DeviceStatusRepository deviceStatusRepository;
     private final UserRepository userRepository;
     private final GeofencingService geofencingService;
+    private final EncryptedSourceEventService encryptedSourceEventService;
 
     @Transactional
     public LocationReportResponse report(Long currentUserId, LocationReportRequest req) {
@@ -71,7 +76,15 @@ public class LocationReportService {
                 .accuracy(req.accuracy())
                 .reportSource(req.reportSource())
                 .build();
-        locationReportRepository.save(report);
+        LocationReport savedReport = locationReportRepository.save(report);
+        encryptedSourceEventService.saveSourceEvent(
+                currentUserId,
+                ActivityEventType.LOCATION_EVENT,
+                "location_report",
+                savedReport.getId(),
+                now,
+                locationReportPayload(savedReport)
+        );
 
         // 2. DeviceStatus 갱신 (없으면 생성 — 회원가입 직후 첫 보고 케이스)
         DeviceStatus device = deviceStatusRepository
@@ -84,7 +97,17 @@ public class LocationReportService {
         // 3. 지오펜싱 판정 위임
         geofencingService.evaluate(currentUserId, req.latitude(), req.longitude(), now);
 
-        return LocationReportResponse.stored(report.getId(), now);
+        return LocationReportResponse.stored(savedReport.getId(), now);
+    }
+
+    private Map<String, Object> locationReportPayload(LocationReport report) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("location_report_id", report.getId());
+        payload.put("latitude", report.getLatitude());
+        payload.put("longitude", report.getLongitude());
+        payload.put("accuracy", report.getAccuracy());
+        payload.put("report_source", report.getReportSource());
+        return payload;
     }
 
     // ============================================================

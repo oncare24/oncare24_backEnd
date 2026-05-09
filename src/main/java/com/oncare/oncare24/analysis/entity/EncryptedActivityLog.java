@@ -70,16 +70,10 @@ public class EncryptedActivityLog extends BaseTimeEntity {
     @Column(name = "occurred_at", nullable = false, columnDefinition = "DATETIME(6)")
     private LocalDateTime occurredAt;
 
-    @Column(name = "nonce", nullable = false, columnDefinition = "VARBINARY(12)")
-    private byte[] nonce;
-
-    @Column(name = "auth_tag", nullable = false, columnDefinition = "VARBINARY(16)")
-    private byte[] authTag;
-
     @Lob
     @Basic(fetch = FetchType.LAZY)
-    @Column(name = "ciphertext", nullable = false, columnDefinition = "LONGBLOB")
-    private byte[] ciphertext;
+    @Column(name = "encrypted_package", nullable = false, columnDefinition = "LONGBLOB")
+    private byte[] encryptedPackage;
 
     @Lob
     @Column(name = "aad_json", columnDefinition = "TEXT")
@@ -93,9 +87,7 @@ public class EncryptedActivityLog extends BaseTimeEntity {
             String sourceTable,
             Long sourceId,
             LocalDateTime occurredAt,
-            byte[] nonce,
-            byte[] authTag,
-            byte[] ciphertext,
+            byte[] encryptedPackage,
             String aadJson
     ) {
         this.wardId = wardId;
@@ -104,9 +96,7 @@ public class EncryptedActivityLog extends BaseTimeEntity {
         this.sourceTable = sourceTable;
         this.sourceId = sourceId;
         this.occurredAt = occurredAt;
-        this.nonce = nonce;
-        this.authTag = authTag;
-        this.ciphertext = ciphertext;
+        this.encryptedPackage = encryptedPackage;
         this.aadJson = aadJson;
     }
 }

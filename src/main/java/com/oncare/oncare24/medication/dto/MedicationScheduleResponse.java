@@ -35,4 +35,20 @@ public record MedicationScheduleResponse(
                 schedule.getUpdatedAt()
         );
     }
+
+    public static MedicationScheduleResponse from(MedicationSchedule schedule, MedicationSchedulePayload payload) {
+        return new MedicationScheduleResponse(
+                schedule.getId(),
+                schedule.getWardId(),
+                payload.medicationName(),
+                payload.scheduledTime(),
+                payload.allowedEarlyMinutes(),
+                payload.allowedDelayMinutes(),
+                payload.scheduleType(),
+                payload.dayOfWeek(),
+                schedule.isActive(),
+                schedule.getCreatedAt(),
+                schedule.getUpdatedAt()
+        );
+    }
 }

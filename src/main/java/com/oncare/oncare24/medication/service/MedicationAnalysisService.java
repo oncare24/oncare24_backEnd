@@ -1,14 +1,19 @@
 package com.oncare.oncare24.medication.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
+import com.oncare.oncare24.medication.dto.MedicationLogPayload;
 import com.oncare.oncare24.medication.dto.MedicationAnalysisResult;
+import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
 import com.oncare.oncare24.medication.entity.MedicationAnalysisStatus;
-import com.oncare.oncare24.medication.entity.MedicationLog;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
-import com.oncare.oncare24.medication.repository.MedicationLogRepository;
 import com.oncare.oncare24.medication.repository.MedicationScheduleRepository;
+import com.oncare.oncare24.security.crypto.service.CommonCryptoService;
+import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
@@ -30,8 +35,10 @@ import java.util.stream.Collectors;
 public class MedicationAnalysisService {
 
     private final MedicationScheduleRepository medicationScheduleRepository;
-    private final MedicationLogRepository medicationLogRepository;
     private final UserRepository userRepository;
+    private final EncryptedActivityLogRepository encryptedActivityLogRepository;
+    private final CommonCryptoService commonCryptoService;
+    private final MlKemKeyProvisionService mlKemKeyProvisionService;
 
     @Transactional(readOnly = true)
     public List<MedicationAnalysisResult> analyzeWardMedication(Long wardId, LocalDate analysisDate) {
@@ -40,7 +47,7 @@ public class MedicationAnalysisService {
         List<MedicationSchedule> schedules = medicationScheduleRepository
                 .findByWardIdAndActiveTrueOrderByScheduledTimeAsc(wardId);
 
-        return analyzeSchedules(schedules, analysisDate, LocalDateTime.now());
+        return analyzeSchedules(wardId, schedules, analysisDate, LocalDateTime.now());
     }
 
     @Transactional(readOnly = true)
@@ -48,42 +55,65 @@ public class MedicationAnalysisService {
         List<MedicationSchedule> schedules = medicationScheduleRepository
                 .findByActiveTrueOrderByWardIdAscScheduledTimeAsc();
 
-        return analyzeSchedules(schedules, analysisDate, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        return schedules.stream()
+                .collect(Collectors.groupingBy(MedicationSchedule::getWardId))
+                .entrySet()
+                .stream()
+                .flatMap(entry -> analyzeSchedules(entry.getKey(), entry.getValue(), analysisDate, now).stream())
+                .sorted(Comparator
+                        .comparing(MedicationAnalysisResult::wardId)
+                        .thenComparing(MedicationAnalysisResult::scheduledAt)
+                        .thenComparing(MedicationAnalysisResult::scheduleId))
+                .toList();
     }
 
     private List<MedicationAnalysisResult> analyzeSchedules(
+            Long wardId,
             List<MedicationSchedule> schedules,
             LocalDate analysisDate,
             LocalDateTime now
     ) {
-        List<MedicationSchedule> targetSchedules = schedules.stream()
-                .filter(schedule -> isTargetSchedule(schedule, analysisDate))
+        byte[] wardPrivateKey = readWardPrivateKey(wardId, schedules);
+        List<DecryptedSchedule> decryptedSchedules = schedules.stream()
+                .map(schedule -> decryptLatestSchedule(schedule, wardPrivateKey))
+                .flatMap(Optional::stream)
+                .filter(schedule -> schedule.payload().active())
+                .filter(schedule -> isTargetSchedule(schedule.payload(), analysisDate))
                 .toList();
 
-        if (targetSchedules.isEmpty()) {
+        if (decryptedSchedules.isEmpty()) {
             return List.of();
         }
 
-        LocalDateTime searchStart = targetSchedules.stream()
-                .map(schedule -> windowStartAt(schedule, analysisDate))
+        LocalDateTime searchStart = decryptedSchedules.stream()
+                .map(schedule -> windowStartAt(schedule.payload(), analysisDate))
                 .min(LocalDateTime::compareTo)
                 .orElse(analysisDate.atStartOfDay());
-        LocalDateTime searchEnd = targetSchedules.stream()
-                .map(schedule -> nextScheduledAt(schedule, analysisDate))
+        LocalDateTime searchEnd = decryptedSchedules.stream()
+                .map(schedule -> nextScheduledAt(schedule.payload(), analysisDate))
                 .max(LocalDateTime::compareTo)
                 .orElse(analysisDate.plusDays(2).atStartOfDay());
-        List<Long> scheduleIds = targetSchedules.stream()
-                .map(MedicationSchedule::getId)
+        List<Long> scheduleIds = decryptedSchedules.stream()
+                .map(DecryptedSchedule::scheduleId)
                 .filter(Objects::nonNull)
                 .toList();
 
-        Map<Long, List<MedicationLog>> logsByScheduleId = medicationLogRepository
-                .findByScheduleIdInAndTakenAtBetweenOrderByTakenAtAsc(scheduleIds, searchStart, searchEnd)
+        Map<Long, List<MedicationLogPayload>> logsByScheduleId = encryptedActivityLogRepository
+                .findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
+                        resolveWardId(wardId, schedules),
+                        ActivityEventType.MEDICATION_EVENT,
+                        "medication_log",
+                        searchStart,
+                        searchEnd
+                )
                 .stream()
-                .filter(log -> log.getScheduleId() != null)
-                .collect(Collectors.groupingBy(MedicationLog::getScheduleId));
+                .map(log -> decryptActivityPayload(log, wardPrivateKey, MedicationLogPayload.class))
+                .filter(log -> log.scheduleId() != null)
+                .filter(log -> scheduleIds.contains(log.scheduleId()))
+                .collect(Collectors.groupingBy(MedicationLogPayload::scheduleId));
 
-        return targetSchedules.stream()
+        return decryptedSchedules.stream()
                 .map(schedule -> analyzeSchedule(schedule, analysisDate, now, logsByScheduleId))
                 .sorted(Comparator
                         .comparing(MedicationAnalysisResult::wardId)
@@ -93,59 +123,61 @@ public class MedicationAnalysisService {
     }
 
     private MedicationAnalysisResult analyzeSchedule(
-            MedicationSchedule schedule,
+            DecryptedSchedule schedule,
             LocalDate analysisDate,
             LocalDateTime now,
-            Map<Long, List<MedicationLog>> logsByScheduleId
+            Map<Long, List<MedicationLogPayload>> logsByScheduleId
     ) {
-        LocalDateTime scheduledAt = LocalDateTime.of(analysisDate, schedule.getScheduledTime());
-        LocalDateTime windowStartAt = windowStartAt(schedule, analysisDate);
-        LocalDateTime deadlineAt = scheduledAt.plusMinutes(schedule.getAllowedDelayMinutes());
-        Optional<MedicationLog> log = findMedicationLogForSchedule(
-                schedule.getId(),
+        MedicationSchedulePayload payload = schedule.payload();
+        LocalDateTime scheduledAt = LocalDateTime.of(analysisDate, payload.scheduledTime());
+        LocalDateTime windowStartAt = windowStartAt(payload, analysisDate);
+        LocalDateTime deadlineAt = scheduledAt.plusMinutes(payload.allowedDelayMinutes());
+        Optional<MedicationLogPayload> log = findMedicationLogForSchedule(
+                schedule.scheduleId(),
                 windowStartAt,
-                nextScheduledAt(schedule, analysisDate),
+                nextScheduledAt(payload, analysisDate),
                 logsByScheduleId
         );
 
         MedicationAnalysisStatus status = determineStatus(log.orElse(null), windowStartAt, deadlineAt, now);
 
         return new MedicationAnalysisResult(
-                schedule.getWardId(),
-                schedule.getId(),
-                schedule.getMedicationName(),
+                schedule.wardId(),
+                schedule.scheduleId(),
+                payload.medicationName(),
                 windowStartAt,
                 scheduledAt,
                 deadlineAt,
-                log.map(MedicationLog::getTakenAt).orElse(null),
+                log.map(MedicationLogPayload::takenAt).orElse(null),
                 status,
-                schedule.getAllowedEarlyMinutes(),
-                schedule.getAllowedDelayMinutes(),
-                buildDetailMessage(status, schedule.getMedicationName())
+                payload.allowedEarlyMinutes(),
+                payload.allowedDelayMinutes(),
+                buildDetailMessage(status, payload.medicationName())
         );
     }
 
-    private Optional<MedicationLog> findMedicationLogForSchedule(
+    private Optional<MedicationLogPayload> findMedicationLogForSchedule(
             Long scheduleId,
             LocalDateTime windowStartAt,
             LocalDateTime nextScheduledAt,
-            Map<Long, List<MedicationLog>> logsByScheduleId
+            Map<Long, List<MedicationLogPayload>> logsByScheduleId
     ) {
         return logsByScheduleId.getOrDefault(scheduleId, List.of())
                 .stream()
-                .filter(log -> !log.getTakenAt().isBefore(windowStartAt))
-                .filter(log -> log.getTakenAt().isBefore(nextScheduledAt))
+                .filter(log -> log.takenAt() != null)
+                .filter(log -> !log.takenAt().isBefore(windowStartAt))
+                .filter(log -> log.takenAt().isBefore(nextScheduledAt))
                 .findFirst();
     }
 
     private MedicationAnalysisStatus determineStatus(
-            MedicationLog log,
+            MedicationLogPayload log,
             LocalDateTime windowStartAt,
             LocalDateTime deadlineAt,
             LocalDateTime now
     ) {
         if (log != null) {
-            if (!log.getTakenAt().isBefore(windowStartAt) && !log.getTakenAt().isAfter(deadlineAt)) {
+            if (!log.takenAt().isBefore(windowStartAt) && !log.takenAt().isAfter(deadlineAt)) {
                 return MedicationAnalysisStatus.ON_TIME;
             }
             return MedicationAnalysisStatus.DELAYED;
@@ -158,23 +190,23 @@ public class MedicationAnalysisService {
         return MedicationAnalysisStatus.PENDING;
     }
 
-    private boolean isTargetSchedule(MedicationSchedule schedule, LocalDate analysisDate) {
-        if (schedule.getScheduleType() == MedicationScheduleType.DAILY) {
+    private boolean isTargetSchedule(MedicationSchedulePayload schedule, LocalDate analysisDate) {
+        if (schedule.scheduleType() == MedicationScheduleType.DAILY) {
             return true;
         }
 
-        return schedule.getScheduleType() == MedicationScheduleType.WEEKLY
-                && schedule.getDayOfWeek() == analysisDate.getDayOfWeek();
+        return schedule.scheduleType() == MedicationScheduleType.WEEKLY
+                && schedule.dayOfWeek() == analysisDate.getDayOfWeek();
     }
 
-    private LocalDateTime nextScheduledAt(MedicationSchedule schedule, LocalDate analysisDate) {
-        int daysToAdd = schedule.getScheduleType() == MedicationScheduleType.WEEKLY ? 7 : 1;
-        return LocalDateTime.of(analysisDate.plusDays(daysToAdd), schedule.getScheduledTime());
+    private LocalDateTime nextScheduledAt(MedicationSchedulePayload schedule, LocalDate analysisDate) {
+        int daysToAdd = schedule.scheduleType() == MedicationScheduleType.WEEKLY ? 7 : 1;
+        return LocalDateTime.of(analysisDate.plusDays(daysToAdd), schedule.scheduledTime());
     }
 
-    private LocalDateTime windowStartAt(MedicationSchedule schedule, LocalDate analysisDate) {
-        return LocalDateTime.of(analysisDate, schedule.getScheduledTime())
-                .minusMinutes(schedule.getAllowedEarlyMinutes());
+    private LocalDateTime windowStartAt(MedicationSchedulePayload schedule, LocalDate analysisDate) {
+        return LocalDateTime.of(analysisDate, schedule.scheduledTime())
+                .minusMinutes(schedule.allowedEarlyMinutes());
     }
 
     private String buildDetailMessage(MedicationAnalysisStatus status, String medicationName) {
@@ -192,5 +224,46 @@ public class MedicationAnalysisService {
         if (ward.getRole() != UserRole.ELDER) {
             throw new CustomException(ErrorCode.INVALID_ELDER);
         }
+    }
+
+    private byte[] readWardPrivateKey(Long wardId, List<MedicationSchedule> schedules) {
+        Long resolvedWardId = resolveWardId(wardId, schedules);
+        return mlKemKeyProvisionService.readPrivateKey(resolvedWardId);
+    }
+
+    private Long resolveWardId(Long wardId, List<MedicationSchedule> schedules) {
+        if (wardId != null) {
+            return wardId;
+        }
+        return schedules.stream()
+                .map(MedicationSchedule::getWardId)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("wardId cannot be resolved from medication schedules"));
+    }
+
+    private Optional<DecryptedSchedule> decryptLatestSchedule(MedicationSchedule schedule, byte[] wardPrivateKey) {
+        return encryptedActivityLogRepository
+                .findFirstBySourceTableAndSourceIdAndEventTypeOrderByOccurredAtDesc(
+                        "medication_schedule",
+                        schedule.getId(),
+                        ActivityEventType.MEDICATION_EVENT
+                )
+                .map(log -> decryptActivityPayload(log, wardPrivateKey, MedicationSchedulePayload.class))
+                .map(payload -> new DecryptedSchedule(schedule.getWardId(), schedule.getId(), payload));
+    }
+
+    private <T> T decryptActivityPayload(EncryptedActivityLog log, byte[] wardPrivateKey, Class<T> payloadType) {
+        return commonCryptoService.decryptActivityLogPayload(
+                log.getDataKeyId(),
+                log.getEncryptedPackage(),
+                log.getAadJson(),
+                log.getWardId(),
+                CommonCryptoService.OWNER_TYPE_USER,
+                wardPrivateKey,
+                payloadType
+        );
+    }
+
+    private record DecryptedSchedule(Long wardId, Long scheduleId, MedicationSchedulePayload payload) {
     }
 }

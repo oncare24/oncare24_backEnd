@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
@@ -59,5 +60,37 @@ class CryptoFfiSmokeTest {
         );
 
         assertArrayEquals(dataKey, openedDataKey);
+    }
+
+    @Test
+    void encryptedPackageRoundTripsThroughFfi() {
+        Path dllPath = CryptoFfiLoader.resolveLibraryPath();
+        assertTrue(dllPath.toFile().isFile(), "crypto_ffi.dll must exist at resolved path: " + dllPath);
+
+        JnaCryptoFfiClient client = new JnaCryptoFfiClient();
+        byte[] dataKey = client.generateDataKey();
+        MlKemKeyPair userKeyPair = client.generateMlKemKeypair();
+        MlKemKeyPair guardianKeyPair = client.generateMlKemKeypair();
+        byte[] plaintext = "{\"status\":\"ok\"}".getBytes(StandardCharsets.UTF_8);
+
+        byte[] encryptedPackage = client.encryptPackage(
+                dataKey,
+                "oncare24-backend-package-smoke-key",
+                plaintext,
+                101L,
+                userKeyPair.publicKey(),
+                202L,
+                guardianKeyPair.publicKey()
+        );
+        byte[] decrypted = client.decryptPackage(
+                encryptedPackage,
+                101L,
+                CryptoFfiNative.FFI_OWNER_TYPE_USER,
+                userKeyPair.privateKey()
+        );
+
+        assertNotNull(encryptedPackage);
+        assertTrue(encryptedPackage.length > 0);
+        assertArrayEquals(plaintext, decrypted);
     }
 }

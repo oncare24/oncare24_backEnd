@@ -209,6 +209,7 @@ class InactivityAnalysisServiceTest {
                 );
     }
 
+
     private InactivityAnalysisResult analyzeWardWithReports(
             InactivityDetectionRule rule,
             List<LocationReport> reports,
@@ -285,4 +286,5 @@ class InactivityAnalysisServiceTest {
         ReflectionTestUtils.setField(report, "updatedAt", createdAt);
         return report;
     }
+
 }

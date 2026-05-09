@@ -49,6 +49,11 @@ public class MlKemKeyProvisionService {
         return decodeRequiredBase64(data, "public_key_b64");
     }
 
+    public byte[] readPrivateKey(Long userId) {
+        Map<String, Object> data = openBaoKvClient.get(userMlKemPath(userId));
+        return decodeRequiredBase64(data, "private_key_b64");
+    }
+
     private static String userMlKemPath(Long userId) {
         return "cap2/users/" + userId + "/mlkem";
     }

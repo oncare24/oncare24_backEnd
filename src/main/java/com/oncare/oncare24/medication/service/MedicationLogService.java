@@ -1,10 +1,14 @@
 package com.oncare.oncare24.medication.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.medication.dto.CreateMedicationLogRequest;
+import com.oncare.oncare24.medication.dto.MedicationLogPayload;
 import com.oncare.oncare24.medication.dto.MedicationLogResponse;
 import com.oncare.oncare24.medication.entity.MedicationLog;
 import com.oncare.oncare24.medication.entity.MedicationLogSource;
@@ -29,6 +33,7 @@ public class MedicationLogService {
     private final MedicationScheduleRepository medicationScheduleRepository;
     private final GuardianWardRepository guardianWardRepository;
     private final UserRepository userRepository;
+    private final EncryptedSourceEventService encryptedSourceEventService;
 
     @Transactional
     public MedicationLogResponse create(Long currentUserId, CreateMedicationLogRequest request) {
@@ -46,22 +51,37 @@ public class MedicationLogService {
             logSource = MedicationLogSource.GUARDIAN_INPUT;
         }
 
-        String medicationName = schedule != null
-                ? schedule.getMedicationName()
-                : request.medicationName();
+        String medicationName = request.medicationName();
         if (!StringUtils.hasText(medicationName)) {
-            throw new CustomException(ErrorCode.INVALID_MEDICATION_REQUEST, "medicationName is required without scheduleId.");
+            throw new CustomException(ErrorCode.INVALID_MEDICATION_REQUEST, "medicationName is required for encrypted medication logs.");
         }
+        LocalDateTime takenAt = request.takenAt() != null ? request.takenAt() : LocalDateTime.now();
 
         MedicationLog log = MedicationLog.builder()
                 .wardId(request.wardId())
                 .scheduleId(schedule != null ? schedule.getId() : null)
-                .takenAt(request.takenAt() != null ? request.takenAt() : LocalDateTime.now())
-                .medicationName(medicationName)
-                .logSource(logSource)
                 .build();
 
-        return MedicationLogResponse.from(medicationLogRepository.save(log));
+        MedicationLog saved = medicationLogRepository.save(log);
+        MedicationLogPayload payload = new MedicationLogPayload(
+                saved.getScheduleId(),
+                null,
+                takenAt,
+                medicationName,
+                logSource,
+                null,
+                null
+        );
+        EncryptedActivityLog encryptedLog = encryptedSourceEventService.saveRequiredSourceEvent(
+                saved.getWardId(),
+                ActivityEventType.MEDICATION_EVENT,
+                "medication_log",
+                saved.getId(),
+                takenAt,
+                payload
+        );
+        saved.linkEncryptedActivityLog(encryptedLog.getId());
+        return MedicationLogResponse.from(saved, payload);
     }
 
     private void validateScheduleForLog(MedicationSchedule schedule, Long wardId) {

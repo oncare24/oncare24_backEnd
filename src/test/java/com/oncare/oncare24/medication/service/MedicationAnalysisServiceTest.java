@@ -1,13 +1,18 @@
 package com.oncare.oncare24.medication.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
+import com.oncare.oncare24.medication.dto.MedicationLogPayload;
 import com.oncare.oncare24.medication.dto.MedicationAnalysisResult;
+import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
 import com.oncare.oncare24.medication.entity.MedicationAnalysisStatus;
-import com.oncare.oncare24.medication.entity.MedicationLog;
 import com.oncare.oncare24.medication.entity.MedicationLogSource;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
-import com.oncare.oncare24.medication.repository.MedicationLogRepository;
 import com.oncare.oncare24.medication.repository.MedicationScheduleRepository;
+import com.oncare.oncare24.security.crypto.service.CommonCryptoService;
+import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
@@ -26,7 +31,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,10 +44,16 @@ class MedicationAnalysisServiceTest {
     private MedicationScheduleRepository medicationScheduleRepository;
 
     @Mock
-    private MedicationLogRepository medicationLogRepository;
+    private UserRepository userRepository;
 
     @Mock
-    private UserRepository userRepository;
+    private EncryptedActivityLogRepository encryptedActivityLogRepository;
+
+    @Mock
+    private CommonCryptoService commonCryptoService;
+
+    @Mock
+    private MlKemKeyProvisionService mlKemKeyProvisionService;
 
     private MedicationAnalysisService medicationAnalysisService;
 
@@ -50,8 +61,10 @@ class MedicationAnalysisServiceTest {
     void setUp() {
         medicationAnalysisService = new MedicationAnalysisService(
                 medicationScheduleRepository,
-                medicationLogRepository,
-                userRepository
+                userRepository,
+                encryptedActivityLogRepository,
+                commonCryptoService,
+                mlKemKeyProvisionService
         );
 
         User ward = User.builder()
@@ -82,7 +95,7 @@ class MedicationAnalysisServiceTest {
         LocalDate analysisDate = LocalDate.now().minusDays(1);
         MedicationAnalysisResult result = analyzeWithLogs(
                 analysisDate,
-                List.of(log(LocalDateTime.of(analysisDate, LocalTime.of(7, 40))))
+                List.of(logPayload(LocalDateTime.of(analysisDate, LocalTime.of(7, 40))))
         );
 
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.MISSED);
@@ -127,20 +140,55 @@ class MedicationAnalysisServiceTest {
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.PENDING);
     }
 
+
     private MedicationAnalysisResult analyzeWithLog(LocalDate analysisDate, LocalDateTime takenAt) {
-        return analyzeWithLogs(analysisDate, List.of(log(takenAt)));
+        return analyzeWithLogs(analysisDate, List.of(logPayload(takenAt)));
     }
 
-    private MedicationAnalysisResult analyzeWithLogs(LocalDate analysisDate, List<MedicationLog> logs) {
+    private MedicationAnalysisResult analyzeWithLogs(LocalDate analysisDate, List<MedicationLogPayload> logs) {
         MedicationSchedule schedule = schedule();
+        EncryptedActivityLog scheduleLog = encryptedLog("medication_schedule", SCHEDULE_ID, analysisDate.atTime(8, 0));
+        List<EncryptedActivityLog> logEvents = logs.stream()
+                .map(log -> encryptedLog("medication_log", 100L + logs.indexOf(log), log.takenAt()))
+                .toList();
 
         when(medicationScheduleRepository.findByWardIdAndActiveTrueOrderByScheduledTimeAsc(WARD_ID))
                 .thenReturn(List.of(schedule));
-        when(medicationLogRepository.findByScheduleIdInAndTakenAtBetweenOrderByTakenAtAsc(
-                anyList(),
+        when(mlKemKeyProvisionService.readPrivateKey(WARD_ID)).thenReturn(new byte[] {1});
+        when(encryptedActivityLogRepository.findFirstBySourceTableAndSourceIdAndEventTypeOrderByOccurredAtDesc(
+                "medication_schedule",
+                SCHEDULE_ID,
+                ActivityEventType.MEDICATION_EVENT
+        )).thenReturn(Optional.of(scheduleLog));
+        when(commonCryptoService.decryptActivityLogPayload(
+                eq(scheduleLog.getDataKeyId()),
+                eq(scheduleLog.getEncryptedPackage()),
+                eq(scheduleLog.getAadJson()),
+                eq(WARD_ID),
+                eq(CommonCryptoService.OWNER_TYPE_USER),
+                any(byte[].class),
+                eq(MedicationSchedulePayload.class)
+        )).thenReturn(schedulePayload());
+        when(encryptedActivityLogRepository.findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_log"),
                 any(LocalDateTime.class),
                 any(LocalDateTime.class)
-        )).thenReturn(logs);
+        )).thenReturn(logEvents);
+        for (int i = 0; i < logEvents.size(); i++) {
+            EncryptedActivityLog event = logEvents.get(i);
+            MedicationLogPayload payload = logs.get(i);
+            when(commonCryptoService.decryptActivityLogPayload(
+                    eq(event.getDataKeyId()),
+                    eq(event.getEncryptedPackage()),
+                    eq(event.getAadJson()),
+                    eq(WARD_ID),
+                    eq(CommonCryptoService.OWNER_TYPE_USER),
+                    any(byte[].class),
+                    eq(MedicationLogPayload.class)
+            )).thenReturn(payload);
+        }
 
         return medicationAnalysisService.analyzeWardMedication(WARD_ID, analysisDate).get(0);
     }
@@ -148,23 +196,48 @@ class MedicationAnalysisServiceTest {
     private MedicationSchedule schedule() {
         MedicationSchedule schedule = MedicationSchedule.builder()
                 .wardId(WARD_ID)
-                .medicationName("morning pill")
-                .scheduledTime(LocalTime.of(8, 0))
-                .allowedEarlyMinutes(10)
-                .allowedDelayMinutes(30)
-                .scheduleType(MedicationScheduleType.DAILY)
                 .build();
         ReflectionTestUtils.setField(schedule, "id", SCHEDULE_ID);
         return schedule;
     }
 
-    private MedicationLog log(LocalDateTime takenAt) {
-        return MedicationLog.builder()
+    private MedicationSchedulePayload schedulePayload() {
+        return new MedicationSchedulePayload(
+                "CREATED",
+                SCHEDULE_ID,
+                "morning pill",
+                LocalTime.of(8, 0),
+                10,
+                30,
+                MedicationScheduleType.DAILY,
+                null,
+                true
+        );
+    }
+
+    private MedicationLogPayload logPayload(LocalDateTime takenAt) {
+        return new MedicationLogPayload(
+                SCHEDULE_ID,
+                LocalDateTime.of(takenAt.toLocalDate(), LocalTime.of(8, 0)),
+                takenAt,
+                "morning pill",
+                MedicationLogSource.USER_INPUT,
+                10,
+                30
+        );
+    }
+
+    private EncryptedActivityLog encryptedLog(String sourceTable, Long sourceId, LocalDateTime occurredAt) {
+        return EncryptedActivityLog.builder()
                 .wardId(WARD_ID)
-                .scheduleId(SCHEDULE_ID)
-                .takenAt(takenAt)
-                .medicationName("morning pill")
-                .logSource(MedicationLogSource.USER_INPUT)
+                .dataKeyId("datakey-test")
+                .eventType(ActivityEventType.MEDICATION_EVENT)
+                .sourceTable(sourceTable)
+                .sourceId(sourceId)
+                .occurredAt(occurredAt)
+                .encryptedPackage(new byte[] {1, 2, 3})
+                .aadJson("{\"ward_id\":1}")
                 .build();
     }
+
 }

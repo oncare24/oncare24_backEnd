@@ -54,6 +54,9 @@ public class MedicationLog extends BaseTimeEntity {
     @Column(name = "schedule_id")
     private Long scheduleId;
 
+    @Column(name = "encrypted_activity_log_id")
+    private Long encryptedActivityLogId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "schedule_id",
@@ -63,28 +66,34 @@ public class MedicationLog extends BaseTimeEntity {
     )
     private MedicationSchedule schedule;
 
-    @Column(name = "taken_at", nullable = false, columnDefinition = "DATETIME(6)")
+    @Column(name = "taken_at", columnDefinition = "DATETIME(6)")
     private LocalDateTime takenAt;
 
     @Column(name = "medication_name", length = 100)
     private String medicationName;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "log_source", nullable = false, length = 30)
+    @Column(name = "log_source", length = 30)
     private MedicationLogSource logSource;
 
     @Builder
     private MedicationLog(
             Long wardId,
             Long scheduleId,
+            Long encryptedActivityLogId,
             LocalDateTime takenAt,
             String medicationName,
             MedicationLogSource logSource
     ) {
         this.wardId = wardId;
         this.scheduleId = scheduleId;
+        this.encryptedActivityLogId = encryptedActivityLogId;
         this.takenAt = takenAt;
         this.medicationName = medicationName;
         this.logSource = logSource;
+    }
+
+    public void linkEncryptedActivityLog(Long encryptedActivityLogId) {
+        this.encryptedActivityLogId = encryptedActivityLogId;
     }
 }

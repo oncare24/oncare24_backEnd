@@ -2,6 +2,7 @@ package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -56,6 +58,9 @@ class MedicationScheduleServiceTest {
     @Mock
     private EncryptedSourceEventService encryptedSourceEventService;
 
+    @Mock
+    private AnalysisRefreshService analysisRefreshService;
+
     private MedicationScheduleService medicationScheduleService;
 
     @BeforeEach
@@ -64,7 +69,8 @@ class MedicationScheduleServiceTest {
                 medicationScheduleRepository,
                 guardianWardRepository,
                 userRepository,
-                encryptedSourceEventService
+                encryptedSourceEventService,
+                analysisRefreshService
         );
     }
 
@@ -117,6 +123,7 @@ class MedicationScheduleServiceTest {
         assertThat(capturedPayload.medicationName()).isEqualTo("morning pill");
         assertThat(capturedPayload.scheduledTime()).isEqualTo(LocalTime.of(8, 0));
         assertThat(capturedPayload.allowedDelayMinutes()).isEqualTo(30);
+        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
     }
 
     @Test
@@ -172,6 +179,7 @@ class MedicationScheduleServiceTest {
         assertThat(savedSchedule.getScheduleType()).isNull();
         assertThat(savedSchedule.getDayOfWeek()).isNull();
         assertThat(savedSchedule.getEncryptedActivityLogId()).isNull();
+        verifyNoInteractions(analysisRefreshService);
         verifyNoMoreInteractions(medicationScheduleRepository);
     }
 
@@ -254,6 +262,7 @@ class MedicationScheduleServiceTest {
         assertThat(schedule.getScheduleType()).isNull();
         assertThat(schedule.getDayOfWeek()).isNull();
         assertThat(schedule.getEncryptedActivityLogId()).isEqualTo(902L);
+        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
     }
 
     @Test
@@ -273,6 +282,7 @@ class MedicationScheduleServiceTest {
         medicationScheduleService.deactivate(WARD_ID, SCHEDULE_ID);
 
         assertThat(schedule.isActive()).isFalse();
+        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
     }
 
     @Test

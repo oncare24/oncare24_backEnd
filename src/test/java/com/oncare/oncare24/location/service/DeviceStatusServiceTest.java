@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
@@ -46,6 +47,9 @@ class DeviceStatusServiceTest {
     @Mock
     private EncryptedSourceEventService encryptedSourceEventService;
 
+    @Mock
+    private AnalysisRefreshService analysisRefreshService;
+
     private DeviceStatusService deviceStatusService;
 
     @BeforeEach
@@ -54,7 +58,8 @@ class DeviceStatusServiceTest {
                 deviceStatusRepository,
                 userRepository,
                 notificationService,
-                encryptedSourceEventService
+                encryptedSourceEventService,
+                analysisRefreshService
         );
     }
 
@@ -91,5 +96,6 @@ class DeviceStatusServiceTest {
         assertThat(capturedPayload.sourceId()).isEqualTo(DEVICE_STATUS_ID);
         assertThat(capturedPayload.deviceStatus()).isEqualTo(DeviceState.DISCONNECTED);
         assertThat(capturedPayload.disconnectedAt()).isNotNull();
+        verify(analysisRefreshService).refreshInactivityState(WARD_ID);
     }
 }

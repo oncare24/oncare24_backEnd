@@ -2,6 +2,7 @@ package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -62,6 +64,9 @@ class MedicationLogServiceTest {
     @Mock
     private EncryptedSourceEventService encryptedSourceEventService;
 
+    @Mock
+    private AnalysisRefreshService analysisRefreshService;
+
     private MedicationLogService medicationLogService;
 
     @BeforeEach
@@ -71,7 +76,8 @@ class MedicationLogServiceTest {
                 medicationScheduleRepository,
                 guardianWardRepository,
                 userRepository,
-                encryptedSourceEventService
+                encryptedSourceEventService,
+                analysisRefreshService
         );
     }
 
@@ -128,6 +134,7 @@ class MedicationLogServiceTest {
         assertThat(capturedPayload.takenAt()).isEqualTo(TAKEN_AT);
         assertThat(capturedPayload.medicationName()).isEqualTo("client name");
         assertThat(capturedPayload.logSource()).isEqualTo(MedicationLogSource.USER_INPUT);
+        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
     }
 
     @Test
@@ -208,6 +215,7 @@ class MedicationLogServiceTest {
         assertThat(savedLog.getMedicationName()).isNull();
         assertThat(savedLog.getLogSource()).isNull();
         assertThat(savedLog.getEncryptedActivityLogId()).isNull();
+        verifyNoInteractions(analysisRefreshService);
         verifyNoMoreInteractions(medicationLogRepository);
     }
 

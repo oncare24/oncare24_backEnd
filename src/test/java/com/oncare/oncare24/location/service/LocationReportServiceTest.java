@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
@@ -57,6 +59,9 @@ class LocationReportServiceTest {
     @Mock
     private EncryptedSourceEventService encryptedSourceEventService;
 
+    @Mock
+    private AnalysisRefreshService analysisRefreshService;
+
     private LocationReportService locationReportService;
 
     @BeforeEach
@@ -67,7 +72,8 @@ class LocationReportServiceTest {
                 deviceStatusRepository,
                 userRepository,
                 geofencingService,
-                encryptedSourceEventService
+                encryptedSourceEventService,
+                analysisRefreshService
         );
     }
 
@@ -121,6 +127,7 @@ class LocationReportServiceTest {
         DeviceStatusSourcePayload capturedDevicePayload = (DeviceStatusSourcePayload) devicePayloadCaptor.getValue();
         assertThat(capturedDevicePayload.wardId()).isEqualTo(WARD_ID);
         assertThat(capturedDevicePayload.deviceStatus()).isEqualTo(com.oncare.oncare24.location.entity.DeviceState.ACTIVE);
+        verify(analysisRefreshService, times(2)).refreshInactivityState(WARD_ID);
     }
 
     private LocationReport withId(LocationReport report, Long id) {

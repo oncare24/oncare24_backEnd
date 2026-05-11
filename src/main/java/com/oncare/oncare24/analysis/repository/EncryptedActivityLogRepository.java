@@ -45,4 +45,10 @@ public interface EncryptedActivityLogRepository extends JpaRepository<EncryptedA
             LocalDateTime from,
             LocalDateTime to
     );
+
+    List<EncryptedActivityLog> findByWardIdAndEventTypeAndSourceTableOrderByOccurredAtAsc(
+            Long wardId,
+            ActivityEventType eventType,
+            String sourceTable
+    );
 }

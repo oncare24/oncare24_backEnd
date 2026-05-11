@@ -2,6 +2,7 @@ package com.oncare.oncare24.location.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
+import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
 import com.oncare.oncare24.location.entity.DeviceStatus;
 import com.oncare.oncare24.location.repository.DeviceStatusRepository;
@@ -15,9 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 단말 연결 상태 모니터링 배치.
@@ -70,14 +69,15 @@ public class DeviceStatusService {
         log.info("[DEVICE-BATCH] {} device(s) crossed disconnect threshold", candidates.size());
 
         for (DeviceStatus device : candidates) {
+            LocalDateTime disconnectedAt = LocalDateTime.now();
             device.markDisconnected();
-            encryptedSourceEventService.saveSourceEvent(
+            encryptedSourceEventService.saveRequiredSourceEvent(
                     device.getUserId(),
                     ActivityEventType.DEVICE_EVENT,
                     "device_status",
                     device.getId(),
-                    LocalDateTime.now(),
-                    deviceStatusPayload(device, "DISCONNECTED")
+                    disconnectedAt,
+                    deviceStatusPayload(device, disconnectedAt)
             );
 
             if (!device.isDisconnectAlreadyNotified()) {
@@ -94,13 +94,16 @@ public class DeviceStatusService {
         }
     }
 
-    private Map<String, Object> deviceStatusPayload(DeviceStatus device, String action) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", action);
-        payload.put("device_status_id", device.getId());
-        payload.put("state", device.getState());
-        payload.put("last_report_at", device.getLastReportAt());
-        payload.put("disconnect_notified", device.isDisconnectAlreadyNotified());
-        return payload;
+    private DeviceStatusSourcePayload deviceStatusPayload(DeviceStatus device, LocalDateTime reportedAt) {
+        return new DeviceStatusSourcePayload(
+                device.getUserId(),
+                device.getState(),
+                device.getLastReportAt(),
+                device.getState() == DeviceState.DISCONNECTED ? reportedAt : null,
+                reportedAt,
+                "device_status",
+                device.getId(),
+                ActivityEventType.DEVICE_EVENT
+        );
     }
 }

@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
+import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
 import com.oncare.oncare24.location.entity.DeviceStatus;
 import com.oncare.oncare24.location.repository.DeviceStatusRepository;
@@ -79,7 +79,7 @@ class DeviceStatusServiceTest {
 
         assertThat(device.getState()).isEqualTo(DeviceState.DISCONNECTED);
         ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(encryptedSourceEventService).saveSourceEvent(
+        verify(encryptedSourceEventService).saveRequiredSourceEvent(
                 eq(WARD_ID),
                 eq(ActivityEventType.DEVICE_EVENT),
                 eq("device_status"),
@@ -87,10 +87,9 @@ class DeviceStatusServiceTest {
                 any(),
                 payloadCaptor.capture()
         );
-        Map<String, Object> capturedPayload = (Map<String, Object>) payloadCaptor.getValue();
-        assertThat(capturedPayload)
-                .containsEntry("action", "DISCONNECTED")
-                .containsEntry("device_status_id", DEVICE_STATUS_ID)
-                .containsEntry("state", DeviceState.DISCONNECTED);
+        DeviceStatusSourcePayload capturedPayload = (DeviceStatusSourcePayload) payloadCaptor.getValue();
+        assertThat(capturedPayload.sourceId()).isEqualTo(DEVICE_STATUS_ID);
+        assertThat(capturedPayload.deviceStatus()).isEqualTo(DeviceState.DISCONNECTED);
+        assertThat(capturedPayload.disconnectedAt()).isNotNull();
     }
 }

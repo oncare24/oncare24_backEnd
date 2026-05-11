@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
-import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,8 +21,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
+import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.dto.LocationReportRequest;
 import com.oncare.oncare24.location.dto.LocationReportResponse;
+import com.oncare.oncare24.location.dto.LocationSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceStatus;
 import com.oncare.oncare24.location.entity.LocationReport;
 import com.oncare.oncare24.location.entity.LocationReportSource;
@@ -95,7 +96,7 @@ class LocationReportServiceTest {
 
         assertThat(response.stored()).isTrue();
         ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(encryptedSourceEventService).saveSourceEvent(
+        verify(encryptedSourceEventService).saveRequiredSourceEvent(
                 eq(WARD_ID),
                 eq(ActivityEventType.LOCATION_EVENT),
                 eq("location_report"),
@@ -103,11 +104,23 @@ class LocationReportServiceTest {
                 any(),
                 payloadCaptor.capture()
         );
-        Map<String, Object> capturedPayload = (Map<String, Object>) payloadCaptor.getValue();
-        assertThat(capturedPayload)
-                .containsEntry("location_report_id", REPORT_ID)
-                .containsEntry("accuracy", 10.0)
-                .containsEntry("report_source", LocationReportSource.BACKGROUND_SCHEDULED);
+        LocationSourcePayload capturedPayload = (LocationSourcePayload) payloadCaptor.getValue();
+        assertThat(capturedPayload.sourceId()).isEqualTo(REPORT_ID);
+        assertThat(capturedPayload.accuracy()).isEqualTo(10.0);
+        assertThat(capturedPayload.reportSource()).isEqualTo(LocationReportSource.BACKGROUND_SCHEDULED);
+
+        ArgumentCaptor<Object> devicePayloadCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(encryptedSourceEventService).saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.DEVICE_EVENT),
+                eq("device_status"),
+                any(),
+                any(),
+                devicePayloadCaptor.capture()
+        );
+        DeviceStatusSourcePayload capturedDevicePayload = (DeviceStatusSourcePayload) devicePayloadCaptor.getValue();
+        assertThat(capturedDevicePayload.wardId()).isEqualTo(WARD_ID);
+        assertThat(capturedDevicePayload.deviceStatus()).isEqualTo(com.oncare.oncare24.location.entity.DeviceState.ACTIVE);
     }
 
     private LocationReport withId(LocationReport report, Long id) {

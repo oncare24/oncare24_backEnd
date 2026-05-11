@@ -19,11 +19,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
+import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.dto.LastLocationResponse;
+import com.oncare.oncare24.location.dto.LocationSourcePayload;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * 위치 보고 진입 도메인 서비스.
@@ -77,13 +77,13 @@ public class LocationReportService {
                 .reportSource(req.reportSource())
                 .build();
         LocationReport savedReport = locationReportRepository.save(report);
-        encryptedSourceEventService.saveSourceEvent(
+        encryptedSourceEventService.saveRequiredSourceEvent(
                 currentUserId,
                 ActivityEventType.LOCATION_EVENT,
                 "location_report",
                 savedReport.getId(),
                 now,
-                locationReportPayload(savedReport)
+                locationReportPayload(savedReport, now)
         );
 
         // 2. DeviceStatus 갱신 (없으면 생성 — 회원가입 직후 첫 보고 케이스)
@@ -93,6 +93,14 @@ public class LocationReportService {
                         DeviceStatus.builder().userId(currentUserId).build()
                 ));
         device.onLocationReported(now);
+        encryptedSourceEventService.saveRequiredSourceEvent(
+                currentUserId,
+                ActivityEventType.DEVICE_EVENT,
+                "device_status",
+                device.getId(),
+                now,
+                deviceStatusPayload(device, now)
+        );
 
         // 3. 지오펜싱 판정 위임
         geofencingService.evaluate(currentUserId, req.latitude(), req.longitude(), now);
@@ -100,14 +108,31 @@ public class LocationReportService {
         return LocationReportResponse.stored(savedReport.getId(), now);
     }
 
-    private Map<String, Object> locationReportPayload(LocationReport report) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("location_report_id", report.getId());
-        payload.put("latitude", report.getLatitude());
-        payload.put("longitude", report.getLongitude());
-        payload.put("accuracy", report.getAccuracy());
-        payload.put("report_source", report.getReportSource());
-        return payload;
+    private LocationSourcePayload locationReportPayload(LocationReport report, LocalDateTime reportedAt) {
+        return new LocationSourcePayload(
+                report.getUserId(),
+                report.getLatitude(),
+                report.getLongitude(),
+                report.getAccuracy(),
+                reportedAt,
+                "location_report",
+                report.getId(),
+                ActivityEventType.LOCATION_EVENT,
+                report.getReportSource()
+        );
+    }
+
+    private DeviceStatusSourcePayload deviceStatusPayload(DeviceStatus device, LocalDateTime reportedAt) {
+        return new DeviceStatusSourcePayload(
+                device.getUserId(),
+                device.getState(),
+                device.getLastReportAt(),
+                null,
+                reportedAt,
+                "device_status",
+                device.getId(),
+                ActivityEventType.DEVICE_EVENT
+        );
     }
 
     // ============================================================

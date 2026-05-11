@@ -1,17 +1,22 @@
 package com.oncare.oncare24.inactivity.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.AnalysisType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
+import com.oncare.oncare24.analysis.service.AnalysisStateService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
 import com.oncare.oncare24.inactivity.dto.InactivityAnalysisResult;
 import com.oncare.oncare24.inactivity.entity.InactivityAnalysisStatus;
 import com.oncare.oncare24.inactivity.entity.InactivityDetectionRule;
 import com.oncare.oncare24.inactivity.repository.InactivityDetectionRuleRepository;
+import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
+import com.oncare.oncare24.location.dto.LocationSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
-import com.oncare.oncare24.location.entity.DeviceStatus;
-import com.oncare.oncare24.location.entity.LocationReport;
-import com.oncare.oncare24.location.repository.DeviceStatusRepository;
-import com.oncare.oncare24.location.repository.LocationReportRepository;
 import com.oncare.oncare24.location.util.Haversine;
+import com.oncare.oncare24.security.crypto.service.CommonCryptoService;
+import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
@@ -29,9 +34,11 @@ import java.util.Optional;
 public class InactivityAnalysisService {
 
     private final InactivityDetectionRuleRepository inactivityDetectionRuleRepository;
-    private final LocationReportRepository locationReportRepository;
-    private final DeviceStatusRepository deviceStatusRepository;
+    private final EncryptedActivityLogRepository encryptedActivityLogRepository;
+    private final CommonCryptoService commonCryptoService;
+    private final MlKemKeyProvisionService mlKemKeyProvisionService;
     private final UserRepository userRepository;
+    private final AnalysisStateService analysisStateService;
 
     @Transactional(readOnly = true)
     public InactivityAnalysisResult analyzeWardInactivity(Long wardId, LocalDateTime analysisAt) {
@@ -40,22 +47,27 @@ public class InactivityAnalysisService {
         InactivityDetectionRule rule = inactivityDetectionRuleRepository.findByWardIdAndActiveTrue(wardId)
                 .orElseThrow(() -> new CustomException(ErrorCode.RESOURCE_NOT_FOUND));
 
-        return analyzeRule(rule, analysisAt);
+        InactivityAnalysisResult result = analyzeRule(rule, analysisAt);
+        persistInactivityState(result);
+        return result;
     }
 
     @Transactional(readOnly = true)
     public List<InactivityAnalysisResult> analyzeAllActiveWardInactivity(LocalDateTime analysisAt) {
-        return inactivityDetectionRuleRepository.findByActiveTrueOrderByWardIdAsc()
+        List<InactivityAnalysisResult> results = inactivityDetectionRuleRepository.findByActiveTrueOrderByWardIdAsc()
                 .stream()
                 .map(rule -> analyzeRule(rule, analysisAt))
                 .toList();
+        results.forEach(this::persistInactivityState);
+        return results;
     }
 
     private InactivityAnalysisResult analyzeRule(InactivityDetectionRule rule, LocalDateTime analysisAt) {
         Long wardId = rule.getWardId();
+        byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
 
-        Optional<DeviceStatus> deviceStatus = deviceStatusRepository.findByUserId(wardId);
-        if (deviceStatus.map(DeviceStatus::getState).filter(DeviceState.DISCONNECTED::equals).isPresent()) {
+        Optional<DeviceStatusSourcePayload> deviceStatus = findLatestDeviceStatus(wardId, analysisAt, wardPrivateKey);
+        if (deviceStatus.map(DeviceStatusSourcePayload::deviceStatus).filter(DeviceState.DISCONNECTED::equals).isPresent()) {
             return result(
                     rule,
                     analysisAt,
@@ -70,8 +82,7 @@ public class InactivityAnalysisService {
             );
         }
 
-        Optional<LocationReport> latestReport = locationReportRepository
-                .findFirstByUserIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(wardId, analysisAt);
+        Optional<DecryptedLocationReport> latestReport = findLatestLocationReport(wardId, analysisAt, wardPrivateKey);
         if (latestReport.isEmpty()) {
             return result(
                     rule,
@@ -87,7 +98,7 @@ public class InactivityAnalysisService {
             );
         }
 
-        LocalDateTime lastReportAt = latestReport.get().getCreatedAt();
+        LocalDateTime lastReportAt = latestReport.get().reportedAt();
         long staleLocationMinutes = minutesBetween(lastReportAt, analysisAt);
         if (staleLocationMinutes >= rule.getStaleLocationDangerMinutes()) {
             return result(
@@ -119,9 +130,8 @@ public class InactivityAnalysisService {
         }
 
         LocalDateTime searchFrom = analysisAt.minusMinutes(resolveLookbackMinutes(rule));
-        List<LocationReport> reports = locationReportRepository
-                .findByUserIdAndCreatedAtBetweenOrderByCreatedAtAsc(wardId, searchFrom, analysisAt);
-        List<LocationReport> reliableReports = reports.stream()
+        List<DecryptedLocationReport> reports = findLocationReports(wardId, searchFrom, analysisAt, wardPrivateKey);
+        List<DecryptedLocationReport> reliableReports = reports.stream()
                 .filter(report -> isReliableAccuracy(report, rule))
                 .toList();
 
@@ -141,7 +151,7 @@ public class InactivityAnalysisService {
         }
 
         LocalDateTime lastReliableMovementAt = findLastReliableMovementAt(reliableReports, rule)
-                .orElse(reliableReports.get(0).getCreatedAt());
+                .orElse(reliableReports.get(0).reportedAt());
         long inactiveMinutes = minutesBetween(lastReliableMovementAt, analysisAt);
         InactivityAnalysisStatus status = determineInactiveStatus(inactiveMinutes, rule);
 
@@ -160,35 +170,107 @@ public class InactivityAnalysisService {
     }
 
     private Optional<LocalDateTime> findLastReliableMovementAt(
-            List<LocationReport> reliableReports,
+            List<DecryptedLocationReport> reliableReports,
             InactivityDetectionRule rule
     ) {
         LocalDateTime lastMovementAt = null;
 
         for (int i = 1; i < reliableReports.size(); i++) {
-            LocationReport previous = reliableReports.get(i - 1);
-            LocationReport current = reliableReports.get(i);
+            DecryptedLocationReport previous = reliableReports.get(i - 1);
+            DecryptedLocationReport current = reliableReports.get(i);
 
             double distanceMeters = Haversine.distance(
-                    previous.getLatitude(),
-                    previous.getLongitude(),
-                    current.getLatitude(),
-                    current.getLongitude()
+                    previous.latitude(),
+                    previous.longitude(),
+                    current.latitude(),
+                    current.longitude()
             );
-            double movementThreshold = previous.getAccuracy()
-                    + current.getAccuracy()
+            double movementThreshold = previous.accuracy()
+                    + current.accuracy()
                     + rule.getMinMovementMeters();
 
             if (distanceMeters > movementThreshold) {
-                lastMovementAt = current.getCreatedAt();
+                lastMovementAt = current.reportedAt();
             }
         }
 
         return Optional.ofNullable(lastMovementAt);
     }
 
-    private boolean isReliableAccuracy(LocationReport report, InactivityDetectionRule rule) {
-        return report.getAccuracy() != null && report.getAccuracy() <= rule.getMaxAccuracyMeters();
+    private boolean isReliableAccuracy(DecryptedLocationReport report, InactivityDetectionRule rule) {
+        return report.accuracy() != null && report.accuracy() <= rule.getMaxAccuracyMeters();
+    }
+
+    private Optional<DeviceStatusSourcePayload> findLatestDeviceStatus(
+            Long wardId,
+            LocalDateTime analysisAt,
+            byte[] wardPrivateKey
+    ) {
+        return encryptedActivityLogRepository
+                .findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                        wardId,
+                        ActivityEventType.DEVICE_EVENT,
+                        "device_status",
+                        analysisAt
+                )
+                .map(log -> decryptActivityPayload(log, wardPrivateKey, DeviceStatusSourcePayload.class));
+    }
+
+    private Optional<DecryptedLocationReport> findLatestLocationReport(
+            Long wardId,
+            LocalDateTime analysisAt,
+            byte[] wardPrivateKey
+    ) {
+        return encryptedActivityLogRepository
+                .findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                        wardId,
+                        ActivityEventType.LOCATION_EVENT,
+                        "location_report",
+                        analysisAt
+                )
+                .map(log -> decryptLocationReport(log, wardPrivateKey));
+    }
+
+    private List<DecryptedLocationReport> findLocationReports(
+            Long wardId,
+            LocalDateTime from,
+            LocalDateTime to,
+            byte[] wardPrivateKey
+    ) {
+        return encryptedActivityLogRepository
+                .findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
+                        wardId,
+                        ActivityEventType.LOCATION_EVENT,
+                        "location_report",
+                        from,
+                        to
+                )
+                .stream()
+                .map(log -> decryptLocationReport(log, wardPrivateKey))
+                .toList();
+    }
+
+    private DecryptedLocationReport decryptLocationReport(EncryptedActivityLog log, byte[] wardPrivateKey) {
+        LocationSourcePayload payload = decryptActivityPayload(log, wardPrivateKey, LocationSourcePayload.class);
+        LocalDateTime reportedAt = payload.reportedAt() != null ? payload.reportedAt() : log.getOccurredAt();
+        return new DecryptedLocationReport(
+                payload.latitude(),
+                payload.longitude(),
+                payload.accuracy(),
+                reportedAt
+        );
+    }
+
+    private <T> T decryptActivityPayload(EncryptedActivityLog log, byte[] wardPrivateKey, Class<T> payloadType) {
+        return commonCryptoService.decryptActivityLogPayload(
+                log.getDataKeyId(),
+                log.getEncryptedPackage(),
+                log.getAadJson(),
+                log.getWardId(),
+                CommonCryptoService.OWNER_TYPE_USER,
+                wardPrivateKey,
+                payloadType
+        );
     }
 
     private InactivityAnalysisStatus determineInactiveStatus(long inactiveMinutes, InactivityDetectionRule rule) {
@@ -199,6 +281,23 @@ public class InactivityAnalysisService {
             return InactivityAnalysisStatus.INACTIVE_WARNING;
         }
         return InactivityAnalysisStatus.NORMAL;
+    }
+
+    private void persistInactivityState(InactivityAnalysisResult result) {
+        analysisStateService.upsertLatestState(
+                result.wardId(),
+                AnalysisType.INACTIVITY,
+                inactivityStatusCode(result.status()),
+                result.analysisAt()
+        );
+    }
+
+    private int inactivityStatusCode(InactivityAnalysisStatus status) {
+        return switch (status) {
+            case NORMAL -> 0;
+            case INACTIVE_WARNING, INACTIVE_DANGER -> 1;
+            case STALE_LOCATION_WARNING, STALE_LOCATION_DANGER, LOCATION_UNRELIABLE, DEVICE_DISCONNECTED -> 2;
+        };
     }
 
     private long resolveLookbackMinutes(InactivityDetectionRule rule) {
@@ -257,5 +356,13 @@ public class InactivityAnalysisService {
         if (ward.getRole() != UserRole.ELDER) {
             throw new CustomException(ErrorCode.INVALID_ELDER);
         }
+    }
+
+    private record DecryptedLocationReport(
+            java.math.BigDecimal latitude,
+            java.math.BigDecimal longitude,
+            Double accuracy,
+            LocalDateTime reportedAt
+    ) {
     }
 }

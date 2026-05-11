@@ -1,14 +1,20 @@
 package com.oncare.oncare24.inactivity.service;
 
+import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.AnalysisType;
+import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
+import com.oncare.oncare24.analysis.service.AnalysisStateService;
 import com.oncare.oncare24.inactivity.dto.InactivityAnalysisResult;
 import com.oncare.oncare24.inactivity.entity.InactivityAnalysisStatus;
 import com.oncare.oncare24.inactivity.entity.InactivityDetectionRule;
 import com.oncare.oncare24.inactivity.repository.InactivityDetectionRuleRepository;
-import com.oncare.oncare24.location.entity.DeviceStatus;
-import com.oncare.oncare24.location.entity.LocationReport;
+import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
+import com.oncare.oncare24.location.dto.LocationSourcePayload;
+import com.oncare.oncare24.location.entity.DeviceState;
 import com.oncare.oncare24.location.entity.LocationReportSource;
-import com.oncare.oncare24.location.repository.DeviceStatusRepository;
-import com.oncare.oncare24.location.repository.LocationReportRepository;
+import com.oncare.oncare24.security.crypto.service.CommonCryptoService;
+import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
@@ -27,7 +33,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,18 +44,25 @@ class InactivityAnalysisServiceTest {
     private static final Long SECOND_WARD_ID = 2L;
     private static final Long RULE_ID = 10L;
     private static final LocalDateTime ANALYSIS_AT = LocalDateTime.of(2026, 5, 8, 12, 0);
+    private static final byte[] WARD_PRIVATE_KEY = new byte[]{1, 2, 3};
 
     @Mock
     private InactivityDetectionRuleRepository inactivityDetectionRuleRepository;
 
     @Mock
-    private LocationReportRepository locationReportRepository;
+    private EncryptedActivityLogRepository encryptedActivityLogRepository;
 
     @Mock
-    private DeviceStatusRepository deviceStatusRepository;
+    private CommonCryptoService commonCryptoService;
+
+    @Mock
+    private MlKemKeyProvisionService mlKemKeyProvisionService;
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private AnalysisStateService analysisStateService;
 
     private InactivityAnalysisService inactivityAnalysisService;
 
@@ -56,148 +70,168 @@ class InactivityAnalysisServiceTest {
     void setUp() {
         inactivityAnalysisService = new InactivityAnalysisService(
                 inactivityDetectionRuleRepository,
-                locationReportRepository,
-                deviceStatusRepository,
-                userRepository
+                encryptedActivityLogRepository,
+                commonCryptoService,
+                mlKemKeyProvisionService,
+                userRepository,
+                analysisStateService
         );
     }
 
     @Test
     void analyzeWardInactivity_returnsNormalWhenReliableMovementIsRecent() {
-        LocationReport first = report(ANALYSIS_AT.minusMinutes(60), 37.0, 127.0, 10.0);
-        LocationReport second = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 10.0);
+        EncryptedActivityLog first = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(60), 37.0, 127.0, 10.0);
+        EncryptedActivityLog second = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 10.0);
 
-        InactivityAnalysisResult result = analyzeWardWithReports(rule(WARD_ID), List.of(first, second), second);
+        InactivityAnalysisResult result = analyzeWardWithLocationLogs(rule(WARD_ID), List.of(first, second), second);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.NORMAL);
-        assertThat(result.lastReliableMovementAt()).isEqualTo(second.getCreatedAt());
+        assertThat(result.lastReliableMovementAt()).isEqualTo(second.getOccurredAt());
         assertThat(result.inactiveMinutes()).isEqualTo(10);
         assertThat(result.reliableReportCount()).isEqualTo(2);
+        verifyInactivityStateSaved(0);
     }
 
     @Test
     void analyzeWardInactivity_returnsInactiveWarningWhenNoReliableMovementBeyondWarningThreshold() {
-        LocationReport first = report(ANALYSIS_AT.minusMinutes(300), 37.0, 127.0, 20.0);
-        LocationReport second = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.0001, 25.0);
+        EncryptedActivityLog first = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(300), 37.0, 127.0, 20.0);
+        EncryptedActivityLog second = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.0001, 25.0);
 
-        InactivityAnalysisResult result = analyzeWardWithReports(rule(WARD_ID), List.of(first, second), second);
+        InactivityAnalysisResult result = analyzeWardWithLocationLogs(rule(WARD_ID), List.of(first, second), second);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.INACTIVE_WARNING);
-        assertThat(result.lastReliableMovementAt()).isEqualTo(first.getCreatedAt());
+        assertThat(result.lastReliableMovementAt()).isEqualTo(first.getOccurredAt());
         assertThat(result.inactiveMinutes()).isEqualTo(300);
+        verifyInactivityStateSaved(1);
     }
 
     @Test
     void analyzeWardInactivity_returnsInactiveDangerWhenNoReliableMovementBeyondDangerThreshold() {
-        LocationReport first = report(ANALYSIS_AT.minusMinutes(500), 37.0, 127.0, 20.0);
-        LocationReport second = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.0001, 25.0);
+        EncryptedActivityLog first = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(500), 37.0, 127.0, 20.0);
+        EncryptedActivityLog second = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.0001, 25.0);
 
-        InactivityAnalysisResult result = analyzeWardWithReports(rule(WARD_ID), List.of(first, second), second);
+        InactivityAnalysisResult result = analyzeWardWithLocationLogs(rule(WARD_ID), List.of(first, second), second);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.INACTIVE_DANGER);
         assertThat(result.inactiveMinutes()).isEqualTo(500);
+        verifyInactivityStateSaved(1);
     }
 
     @Test
     void analyzeWardInactivity_returnsStaleLocationWarningWhenLatestReportIsOlderThanWarningThreshold() {
-        LocationReport latest = report(ANALYSIS_AT.minusMinutes(180), 37.0, 127.0, 20.0);
+        EncryptedActivityLog latest = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(180), 37.0, 127.0, 20.0);
 
         InactivityAnalysisResult result = analyzeWardWithLatestOnly(rule(WARD_ID), latest);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.STALE_LOCATION_WARNING);
         assertThat(result.staleLocationMinutes()).isEqualTo(180);
+        verifyInactivityStateSaved(2);
     }
 
     @Test
     void analyzeWardInactivity_returnsStaleLocationDangerWhenLatestReportIsOlderThanDangerThreshold() {
-        LocationReport latest = report(ANALYSIS_AT.minusMinutes(400), 37.0, 127.0, 20.0);
+        EncryptedActivityLog latest = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(400), 37.0, 127.0, 20.0);
 
         InactivityAnalysisResult result = analyzeWardWithLatestOnly(rule(WARD_ID), latest);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.STALE_LOCATION_DANGER);
         assertThat(result.staleLocationMinutes()).isEqualTo(400);
+        verifyInactivityStateSaved(2);
     }
 
     @Test
     void analyzeWardInactivity_returnsLocationUnreliableWhenAllReportsExceedMaxAccuracy() {
-        LocationReport first = report(ANALYSIS_AT.minusMinutes(60), 37.0, 127.0, 150.0);
-        LocationReport second = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 200.0);
+        EncryptedActivityLog first = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(60), 37.0, 127.0, 150.0);
+        EncryptedActivityLog second = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 200.0);
 
-        InactivityAnalysisResult result = analyzeWardWithReports(rule(WARD_ID), List.of(first, second), second);
+        InactivityAnalysisResult result = analyzeWardWithLocationLogs(rule(WARD_ID), List.of(first, second), second);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.LOCATION_UNRELIABLE);
         assertThat(result.usedReportCount()).isEqualTo(2);
         assertThat(result.reliableReportCount()).isZero();
+        verifyInactivityStateSaved(2);
     }
 
     @Test
     void analyzeWardInactivity_returnsDeviceDisconnectedBeforeLocationAnalysis() {
         InactivityDetectionRule rule = rule(WARD_ID);
-        DeviceStatus disconnected = DeviceStatus.builder()
-                .userId(WARD_ID)
-                .build();
-        disconnected.markDisconnected();
+        EncryptedActivityLog disconnected = deviceLog(3L, WARD_ID, ANALYSIS_AT.minusMinutes(1), DeviceState.DISCONNECTED);
 
         stubWard();
+        stubPrivateKey(WARD_ID);
         when(inactivityDetectionRuleRepository.findByWardIdAndActiveTrue(WARD_ID)).thenReturn(Optional.of(rule));
-        when(deviceStatusRepository.findByUserId(WARD_ID)).thenReturn(Optional.of(disconnected));
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                WARD_ID,
+                ActivityEventType.DEVICE_EVENT,
+                "device_status",
+                ANALYSIS_AT
+        )).thenReturn(Optional.of(disconnected));
 
         InactivityAnalysisResult result = inactivityAnalysisService.analyzeWardInactivity(WARD_ID, ANALYSIS_AT);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.DEVICE_DISCONNECTED);
-        verifyNoInteractions(locationReportRepository);
+        verifyInactivityStateSaved(2);
+        verify(encryptedActivityLogRepository, never())
+                .findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                        WARD_ID,
+                        ActivityEventType.LOCATION_EVENT,
+                        "location_report",
+                        ANALYSIS_AT
+                );
     }
 
     @Test
     void analyzeWardInactivity_doesNotRecognizeSmallCoordinateChangeInsideGpsErrorAsMovement() {
-        LocationReport first = report(ANALYSIS_AT.minusMinutes(300), 37.0, 127.0, 20.0);
-        LocationReport second = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.0001, 25.0);
+        EncryptedActivityLog first = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(300), 37.0, 127.0, 20.0);
+        EncryptedActivityLog second = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.0001, 25.0);
 
-        InactivityAnalysisResult result = analyzeWardWithReports(rule(WARD_ID), List.of(first, second), second);
+        InactivityAnalysisResult result = analyzeWardWithLocationLogs(rule(WARD_ID), List.of(first, second), second);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.INACTIVE_WARNING);
-        assertThat(result.lastReliableMovementAt()).isEqualTo(first.getCreatedAt());
+        assertThat(result.lastReliableMovementAt()).isEqualTo(first.getOccurredAt());
+        verifyInactivityStateSaved(1);
     }
 
     @Test
     void analyzeWardInactivity_recognizesMovementBeyondGpsErrorAndMinimumDistance() {
-        LocationReport first = report(ANALYSIS_AT.minusMinutes(300), 37.0, 127.0, 10.0);
-        LocationReport second = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 10.0);
+        EncryptedActivityLog first = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(300), 37.0, 127.0, 10.0);
+        EncryptedActivityLog second = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 10.0);
 
-        InactivityAnalysisResult result = analyzeWardWithReports(rule(WARD_ID), List.of(first, second), second);
+        InactivityAnalysisResult result = analyzeWardWithLocationLogs(rule(WARD_ID), List.of(first, second), second);
 
         assertThat(result.status()).isEqualTo(InactivityAnalysisStatus.NORMAL);
-        assertThat(result.lastReliableMovementAt()).isEqualTo(second.getCreatedAt());
+        assertThat(result.lastReliableMovementAt()).isEqualTo(second.getOccurredAt());
         assertThat(result.inactiveMinutes()).isEqualTo(10);
+        verifyInactivityStateSaved(0);
     }
 
     @Test
     void analyzeAllActiveWardInactivity_returnsResultsForAllActiveRules() {
         InactivityDetectionRule firstRule = rule(WARD_ID);
         InactivityDetectionRule secondRule = rule(SECOND_WARD_ID, 11L);
-        LocationReport firstLatest = report(ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 10.0);
-        LocationReport secondLatest = report(ANALYSIS_AT.minusMinutes(400), 37.0, 127.0, 20.0);
+        EncryptedActivityLog firstOld = locationLog(1L, WARD_ID, ANALYSIS_AT.minusMinutes(60), 37.0, 127.0, 10.0);
+        EncryptedActivityLog firstLatest = locationLog(2L, WARD_ID, ANALYSIS_AT.minusMinutes(10), 37.0, 127.001, 10.0);
+        EncryptedActivityLog secondLatest = locationLog(3L, SECOND_WARD_ID, ANALYSIS_AT.minusMinutes(400), 37.0, 127.0, 20.0);
 
         when(inactivityDetectionRuleRepository.findByActiveTrueOrderByWardIdAsc())
                 .thenReturn(List.of(firstRule, secondRule));
-        when(deviceStatusRepository.findByUserId(WARD_ID)).thenReturn(Optional.empty());
-        when(deviceStatusRepository.findByUserId(SECOND_WARD_ID)).thenReturn(Optional.empty());
-        when(locationReportRepository.findFirstByUserIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(
-                WARD_ID,
-                ANALYSIS_AT
+        stubPrivateKey(WARD_ID);
+        stubPrivateKey(SECOND_WARD_ID);
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                WARD_ID, ActivityEventType.DEVICE_EVENT, "device_status", ANALYSIS_AT
+        )).thenReturn(Optional.empty());
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                SECOND_WARD_ID, ActivityEventType.DEVICE_EVENT, "device_status", ANALYSIS_AT
+        )).thenReturn(Optional.empty());
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                WARD_ID, ActivityEventType.LOCATION_EVENT, "location_report", ANALYSIS_AT
         )).thenReturn(Optional.of(firstLatest));
-        when(locationReportRepository.findFirstByUserIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(
-                SECOND_WARD_ID,
-                ANALYSIS_AT
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                SECOND_WARD_ID, ActivityEventType.LOCATION_EVENT, "location_report", ANALYSIS_AT
         )).thenReturn(Optional.of(secondLatest));
-        when(locationReportRepository.findByUserIdAndCreatedAtBetweenOrderByCreatedAtAsc(
-                eq(WARD_ID),
-                any(LocalDateTime.class),
-                eq(ANALYSIS_AT)
-        )).thenReturn(List.of(
-                report(ANALYSIS_AT.minusMinutes(60), 37.0, 127.0, 10.0),
-                firstLatest
-        ));
+        when(encryptedActivityLogRepository.findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
+                eq(WARD_ID), eq(ActivityEventType.LOCATION_EVENT), eq("location_report"), any(LocalDateTime.class), eq(ANALYSIS_AT)
+        )).thenReturn(List.of(firstOld, firstLatest));
 
         List<InactivityAnalysisResult> results =
                 inactivityAnalysisService.analyzeAllActiveWardInactivity(ANALYSIS_AT);
@@ -207,23 +241,53 @@ class InactivityAnalysisServiceTest {
                         InactivityAnalysisStatus.NORMAL,
                         InactivityAnalysisStatus.STALE_LOCATION_DANGER
                 );
+        verify(analysisStateService).upsertLatestState(
+                WARD_ID,
+                AnalysisType.INACTIVITY,
+                0,
+                ANALYSIS_AT
+        );
+        verify(analysisStateService).upsertLatestState(
+                SECOND_WARD_ID,
+                AnalysisType.INACTIVITY,
+                2,
+                ANALYSIS_AT
+        );
     }
 
+    private void verifyInactivityStateSaved(int statusCode) {
+        verify(analysisStateService).upsertLatestState(
+                WARD_ID,
+                AnalysisType.INACTIVITY,
+                statusCode,
+                ANALYSIS_AT
+        );
+    }
 
-    private InactivityAnalysisResult analyzeWardWithReports(
+    private InactivityAnalysisResult analyzeWardWithLocationLogs(
             InactivityDetectionRule rule,
-            List<LocationReport> reports,
-            LocationReport latestReport
+            List<EncryptedActivityLog> reports,
+            EncryptedActivityLog latestReport
     ) {
         stubWard();
+        stubPrivateKey(WARD_ID);
         when(inactivityDetectionRuleRepository.findByWardIdAndActiveTrue(WARD_ID)).thenReturn(Optional.of(rule));
-        when(deviceStatusRepository.findByUserId(WARD_ID)).thenReturn(Optional.empty());
-        when(locationReportRepository.findFirstByUserIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
                 WARD_ID,
+                ActivityEventType.DEVICE_EVENT,
+                "device_status",
+                ANALYSIS_AT
+        )).thenReturn(Optional.empty());
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                WARD_ID,
+                ActivityEventType.LOCATION_EVENT,
+                "location_report",
                 ANALYSIS_AT
         )).thenReturn(Optional.of(latestReport));
-        when(locationReportRepository.findByUserIdAndCreatedAtBetweenOrderByCreatedAtAsc(
+        when(encryptedActivityLogRepository.findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
                 eq(WARD_ID),
+                eq(ActivityEventType.LOCATION_EVENT),
+                eq("location_report"),
                 any(LocalDateTime.class),
                 eq(ANALYSIS_AT)
         )).thenReturn(reports);
@@ -233,13 +297,21 @@ class InactivityAnalysisServiceTest {
 
     private InactivityAnalysisResult analyzeWardWithLatestOnly(
             InactivityDetectionRule rule,
-            LocationReport latestReport
+            EncryptedActivityLog latestReport
     ) {
         stubWard();
+        stubPrivateKey(WARD_ID);
         when(inactivityDetectionRuleRepository.findByWardIdAndActiveTrue(WARD_ID)).thenReturn(Optional.of(rule));
-        when(deviceStatusRepository.findByUserId(WARD_ID)).thenReturn(Optional.empty());
-        when(locationReportRepository.findFirstByUserIdAndCreatedAtLessThanEqualOrderByCreatedAtDesc(
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
                 WARD_ID,
+                ActivityEventType.DEVICE_EVENT,
+                "device_status",
+                ANALYSIS_AT
+        )).thenReturn(Optional.empty());
+        when(encryptedActivityLogRepository.findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+                WARD_ID,
+                ActivityEventType.LOCATION_EVENT,
+                "location_report",
                 ANALYSIS_AT
         )).thenReturn(Optional.of(latestReport));
 
@@ -254,6 +326,10 @@ class InactivityAnalysisServiceTest {
                 .role(UserRole.ELDER)
                 .build();
         when(userRepository.findById(WARD_ID)).thenReturn(Optional.of(ward));
+    }
+
+    private void stubPrivateKey(Long wardId) {
+        when(mlKemKeyProvisionService.readPrivateKey(wardId)).thenReturn(WARD_PRIVATE_KEY);
     }
 
     private InactivityDetectionRule rule(Long wardId) {
@@ -274,17 +350,90 @@ class InactivityAnalysisServiceTest {
         return rule;
     }
 
-    private LocationReport report(LocalDateTime createdAt, double latitude, double longitude, double accuracy) {
-        LocationReport report = LocationReport.builder()
-                .userId(WARD_ID)
-                .latitude(BigDecimal.valueOf(latitude))
-                .longitude(BigDecimal.valueOf(longitude))
-                .accuracy(accuracy)
-                .reportSource(LocationReportSource.BACKGROUND_SCHEDULED)
-                .build();
-        ReflectionTestUtils.setField(report, "createdAt", createdAt);
-        ReflectionTestUtils.setField(report, "updatedAt", createdAt);
-        return report;
+    private EncryptedActivityLog locationLog(
+            Long sourceId,
+            Long wardId,
+            LocalDateTime occurredAt,
+            double latitude,
+            double longitude,
+            double accuracy
+    ) {
+        EncryptedActivityLog log = encryptedLog(
+                sourceId,
+                wardId,
+                ActivityEventType.LOCATION_EVENT,
+                "location_report",
+                occurredAt
+        );
+        LocationSourcePayload payload = new LocationSourcePayload(
+                wardId,
+                BigDecimal.valueOf(latitude),
+                BigDecimal.valueOf(longitude),
+                accuracy,
+                occurredAt,
+                "location_report",
+                sourceId,
+                ActivityEventType.LOCATION_EVENT,
+                LocationReportSource.BACKGROUND_SCHEDULED
+        );
+        when(commonCryptoService.decryptActivityLogPayload(
+                eq(log.getDataKeyId()),
+                eq(log.getEncryptedPackage()),
+                eq(log.getAadJson()),
+                eq(wardId),
+                eq(CommonCryptoService.OWNER_TYPE_USER),
+                eq(WARD_PRIVATE_KEY),
+                eq(LocationSourcePayload.class)
+        )).thenReturn(payload);
+        return log;
     }
 
+    private EncryptedActivityLog deviceLog(Long sourceId, Long wardId, LocalDateTime occurredAt, DeviceState state) {
+        EncryptedActivityLog log = encryptedLog(
+                sourceId,
+                wardId,
+                ActivityEventType.DEVICE_EVENT,
+                "device_status",
+                occurredAt
+        );
+        DeviceStatusSourcePayload payload = new DeviceStatusSourcePayload(
+                wardId,
+                state,
+                occurredAt.minusMinutes(30),
+                state == DeviceState.DISCONNECTED ? occurredAt : null,
+                occurredAt,
+                "device_status",
+                sourceId,
+                ActivityEventType.DEVICE_EVENT
+        );
+        when(commonCryptoService.decryptActivityLogPayload(
+                eq(log.getDataKeyId()),
+                eq(log.getEncryptedPackage()),
+                eq(log.getAadJson()),
+                eq(wardId),
+                eq(CommonCryptoService.OWNER_TYPE_USER),
+                eq(WARD_PRIVATE_KEY),
+                eq(DeviceStatusSourcePayload.class)
+        )).thenReturn(payload);
+        return log;
+    }
+
+    private EncryptedActivityLog encryptedLog(
+            Long sourceId,
+            Long wardId,
+            ActivityEventType eventType,
+            String sourceTable,
+            LocalDateTime occurredAt
+    ) {
+        return EncryptedActivityLog.builder()
+                .wardId(wardId)
+                .dataKeyId("key-" + eventType + "-" + wardId + "-" + sourceId)
+                .eventType(eventType)
+                .sourceTable(sourceTable)
+                .sourceId(sourceId)
+                .occurredAt(occurredAt)
+                .encryptedPackage(new byte[]{9, sourceId.byteValue()})
+                .aadJson("{\"ward_id\":" + wardId + "}")
+                .build();
+    }
 }

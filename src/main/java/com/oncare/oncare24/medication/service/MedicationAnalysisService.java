@@ -1,8 +1,10 @@
 package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.entity.AnalysisType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
 import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
+import com.oncare.oncare24.analysis.service.AnalysisStateService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
 import com.oncare.oncare24.medication.dto.MedicationLogPayload;
@@ -39,6 +41,7 @@ public class MedicationAnalysisService {
     private final EncryptedActivityLogRepository encryptedActivityLogRepository;
     private final CommonCryptoService commonCryptoService;
     private final MlKemKeyProvisionService mlKemKeyProvisionService;
+    private final AnalysisStateService analysisStateService;
 
     @Transactional(readOnly = true)
     public List<MedicationAnalysisResult> analyzeWardMedication(Long wardId, LocalDate analysisDate) {
@@ -113,13 +116,15 @@ public class MedicationAnalysisService {
                 .filter(log -> scheduleIds.contains(log.scheduleId()))
                 .collect(Collectors.groupingBy(MedicationLogPayload::scheduleId));
 
-        return decryptedSchedules.stream()
+        List<MedicationAnalysisResult> results = decryptedSchedules.stream()
                 .map(schedule -> analyzeSchedule(schedule, analysisDate, now, logsByScheduleId))
                 .sorted(Comparator
                         .comparing(MedicationAnalysisResult::wardId)
                         .thenComparing(MedicationAnalysisResult::scheduledAt)
                         .thenComparing(MedicationAnalysisResult::scheduleId))
                 .toList();
+        results.forEach(result -> persistMedicationState(result, now));
+        return results;
     }
 
     private MedicationAnalysisResult analyzeSchedule(
@@ -188,6 +193,28 @@ public class MedicationAnalysisService {
         }
 
         return MedicationAnalysisStatus.PENDING;
+    }
+
+    private void persistMedicationState(MedicationAnalysisResult result, LocalDateTime analyzedAt) {
+        Integer statusCode = medicationStatusCode(result.status());
+        if (statusCode == null) {
+            return;
+        }
+        analysisStateService.upsertLatestState(
+                result.wardId(),
+                AnalysisType.MEDICATION,
+                statusCode,
+                analyzedAt
+        );
+    }
+
+    private Integer medicationStatusCode(MedicationAnalysisStatus status) {
+        return switch (status) {
+            case ON_TIME -> 0;
+            case DELAYED -> 1;
+            case MISSED -> 2;
+            case PENDING -> null;
+        };
     }
 
     private boolean isTargetSchedule(MedicationSchedulePayload schedule, LocalDate analysisDate) {

@@ -1,8 +1,10 @@
 package com.oncare.oncare24.medication.service;
 
+import com.oncare.oncare24.analysis.entity.AnalysisType;
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
 import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
+import com.oncare.oncare24.analysis.service.AnalysisStateService;
 import com.oncare.oncare24.medication.dto.MedicationLogPayload;
 import com.oncare.oncare24.medication.dto.MedicationAnalysisResult;
 import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
@@ -32,6 +34,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,6 +59,9 @@ class MedicationAnalysisServiceTest {
     @Mock
     private MlKemKeyProvisionService mlKemKeyProvisionService;
 
+    @Mock
+    private AnalysisStateService analysisStateService;
+
     private MedicationAnalysisService medicationAnalysisService;
 
     @BeforeEach
@@ -64,7 +71,8 @@ class MedicationAnalysisServiceTest {
                 userRepository,
                 encryptedActivityLogRepository,
                 commonCryptoService,
-                mlKemKeyProvisionService
+                mlKemKeyProvisionService,
+                analysisStateService
         );
 
         User ward = User.builder()
@@ -88,6 +96,12 @@ class MedicationAnalysisServiceTest {
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.ON_TIME);
         assertThat(result.windowStartAt()).isEqualTo(LocalDateTime.of(analysisDate, LocalTime.of(7, 50)));
         assertThat(result.allowedEarlyMinutes()).isEqualTo(10);
+        verify(analysisStateService).upsertLatestState(
+                eq(WARD_ID),
+                eq(AnalysisType.MEDICATION),
+                eq(0),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
@@ -100,6 +114,12 @@ class MedicationAnalysisServiceTest {
 
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.MISSED);
         assertThat(result.takenAt()).isNull();
+        verify(analysisStateService).upsertLatestState(
+                eq(WARD_ID),
+                eq(AnalysisType.MEDICATION),
+                eq(2),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
@@ -122,6 +142,12 @@ class MedicationAnalysisServiceTest {
         );
 
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.DELAYED);
+        verify(analysisStateService).upsertLatestState(
+                eq(WARD_ID),
+                eq(AnalysisType.MEDICATION),
+                eq(1),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
@@ -130,6 +156,12 @@ class MedicationAnalysisServiceTest {
         MedicationAnalysisResult result = analyzeWithLogs(analysisDate, List.of());
 
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.MISSED);
+        verify(analysisStateService).upsertLatestState(
+                eq(WARD_ID),
+                eq(AnalysisType.MEDICATION),
+                eq(2),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
@@ -138,6 +170,12 @@ class MedicationAnalysisServiceTest {
         MedicationAnalysisResult result = analyzeWithLogs(analysisDate, List.of());
 
         assertThat(result.status()).isEqualTo(MedicationAnalysisStatus.PENDING);
+        verify(analysisStateService, never()).upsertLatestState(
+                eq(WARD_ID),
+                eq(AnalysisType.MEDICATION),
+                any(Integer.class),
+                any(LocalDateTime.class)
+        );
     }
 
 

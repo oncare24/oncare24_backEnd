@@ -31,6 +31,13 @@ public interface EncryptedActivityLogRepository extends JpaRepository<EncryptedA
             ActivityEventType eventType
     );
 
+    Optional<EncryptedActivityLog> findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
+            Long wardId,
+            ActivityEventType eventType,
+            String sourceTable,
+            LocalDateTime occurredAt
+    );
+
     List<EncryptedActivityLog> findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
             Long wardId,
             ActivityEventType eventType,

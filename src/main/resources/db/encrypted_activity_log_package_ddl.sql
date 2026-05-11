@@ -50,3 +50,20 @@ ALTER TABLE medication_schedule
     MODIFY COLUMN allowed_delay_minutes INT NULL,
     MODIFY COLUMN schedule_type VARCHAR(20) NULL,
     MODIFY COLUMN day_of_week VARCHAR(20) NULL;
+
+-- Latest app-display analysis state cache only. This table must not store
+-- analysis details, decrypted payloads, coordinates, medication names, or reasons.
+CREATE TABLE ward_analysis_state (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    ward_id BIGINT NOT NULL,
+    analysis_type VARCHAR(30) NOT NULL,
+    status_code INT NOT NULL,
+    analyzed_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_ward_analysis_state_type UNIQUE (ward_id, analysis_type)
+);
+
+CREATE INDEX idx_ward_analysis_state_ward
+    ON ward_analysis_state (ward_id);

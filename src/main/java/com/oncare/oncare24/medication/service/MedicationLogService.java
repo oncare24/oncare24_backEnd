@@ -2,6 +2,7 @@ package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
@@ -34,6 +35,7 @@ public class MedicationLogService {
     private final GuardianWardRepository guardianWardRepository;
     private final UserRepository userRepository;
     private final EncryptedSourceEventService encryptedSourceEventService;
+    private final AnalysisRefreshService analysisRefreshService;
 
     @Transactional
     public MedicationLogResponse create(Long currentUserId, CreateMedicationLogRequest request) {
@@ -81,6 +83,7 @@ public class MedicationLogService {
                 payload
         );
         saved.linkEncryptedActivityLog(encryptedLog.getId());
+        analysisRefreshService.refreshMedicationState(saved.getWardId());
         return MedicationLogResponse.from(saved, payload);
     }
 

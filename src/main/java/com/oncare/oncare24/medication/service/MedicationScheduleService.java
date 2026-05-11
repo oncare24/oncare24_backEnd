@@ -2,6 +2,7 @@ package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
@@ -33,6 +34,7 @@ public class MedicationScheduleService {
     private final GuardianWardRepository guardianWardRepository;
     private final UserRepository userRepository;
     private final EncryptedSourceEventService encryptedSourceEventService;
+    private final AnalysisRefreshService analysisRefreshService;
 
     @Transactional
     public MedicationScheduleResponse create(Long currentUserId, CreateMedicationScheduleRequest request) {
@@ -58,6 +60,7 @@ public class MedicationScheduleService {
         );
         EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(saved, payload);
         saved.linkEncryptedActivityLog(encryptedLog.getId());
+        analysisRefreshService.refreshMedicationState(saved.getWardId());
         return MedicationScheduleResponse.from(saved, payload);
     }
 
@@ -110,6 +113,7 @@ public class MedicationScheduleService {
         );
         EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(schedule, payload);
         schedule.linkEncryptedActivityLog(encryptedLog.getId());
+        analysisRefreshService.refreshMedicationState(schedule.getWardId());
         return MedicationScheduleResponse.from(schedule, payload);
     }
 
@@ -132,6 +136,7 @@ public class MedicationScheduleService {
         );
         EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(schedule, payload);
         schedule.linkEncryptedActivityLog(encryptedLog.getId());
+        analysisRefreshService.refreshMedicationState(schedule.getWardId());
     }
 
     private EncryptedActivityLog saveEncryptedScheduleEvent(MedicationSchedule schedule, MedicationSchedulePayload payload) {

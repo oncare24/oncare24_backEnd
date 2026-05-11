@@ -1,6 +1,7 @@
 package com.oncare.oncare24.location.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
+import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
@@ -54,6 +55,7 @@ public class LocationReportService {
     private final UserRepository userRepository;
     private final GeofencingService geofencingService;
     private final EncryptedSourceEventService encryptedSourceEventService;
+    private final AnalysisRefreshService analysisRefreshService;
 
     @Transactional
     public LocationReportResponse report(Long currentUserId, LocationReportRequest req) {
@@ -85,6 +87,7 @@ public class LocationReportService {
                 now,
                 locationReportPayload(savedReport, now)
         );
+        analysisRefreshService.refreshInactivityState(currentUserId);
 
         // 2. DeviceStatus 갱신 (없으면 생성 — 회원가입 직후 첫 보고 케이스)
         DeviceStatus device = deviceStatusRepository
@@ -101,6 +104,7 @@ public class LocationReportService {
                 now,
                 deviceStatusPayload(device, now)
         );
+        analysisRefreshService.refreshInactivityState(currentUserId);
 
         // 3. 지오펜싱 판정 위임
         geofencingService.evaluate(currentUserId, req.latitude(), req.longitude(), now);

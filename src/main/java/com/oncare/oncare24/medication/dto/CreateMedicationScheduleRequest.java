@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Size;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.util.List;
 
 public record CreateMedicationScheduleRequest(
         @NotNull
@@ -30,10 +31,26 @@ public record CreateMedicationScheduleRequest(
         @NotNull
         MedicationScheduleType scheduleType,
 
-        DayOfWeek dayOfWeek
+        DayOfWeek dayOfWeek,
+
+        List<DayOfWeek> daysOfWeek
 ) {
-    @AssertTrue(message = "dayOfWeek is required for WEEKLY schedules.")
-    public boolean isValidWeeklyDayOfWeek() {
-        return scheduleType != MedicationScheduleType.WEEKLY || dayOfWeek != null;
+    public CreateMedicationScheduleRequest(
+            Long wardId,
+            String medicationName,
+            LocalTime scheduledTime,
+            Integer allowedEarlyMinutes,
+            Integer allowedDelayMinutes,
+            MedicationScheduleType scheduleType,
+            DayOfWeek dayOfWeek
+    ) {
+        this(wardId, medicationName, scheduledTime, allowedEarlyMinutes, allowedDelayMinutes, scheduleType, dayOfWeek, null);
+    }
+
+    @AssertTrue(message = "dayOfWeek or daysOfWeek is required for WEEKLY schedules.")
+    public boolean isValidWeeklyDaysOfWeek() {
+        return scheduleType != MedicationScheduleType.WEEKLY
+                || dayOfWeek != null
+                || (daysOfWeek != null && !daysOfWeek.isEmpty());
     }
 }

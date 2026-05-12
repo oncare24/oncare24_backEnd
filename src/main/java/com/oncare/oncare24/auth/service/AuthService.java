@@ -9,8 +9,10 @@ import com.oncare.oncare24.auth.jwt.JwtProperties;
 import com.oncare.oncare24.auth.jwt.JwtProvider;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
+import com.oncare.oncare24.inactivity.service.InactivityRuleProvisionService;
 import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 import com.oncare.oncare24.user.entity.User;
+import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +31,7 @@ public class AuthService {
     private final JwtProperties jwtProperties;
     private final RefreshTokenService refreshTokenService;
     private final MlKemKeyProvisionService mlKemKeyProvisionService;
+    private final InactivityRuleProvisionService inactivityRuleProvisionService;
 
     /**
      * 회원가입.
@@ -47,6 +50,9 @@ public class AuthService {
                 .build();
         User saved = userRepository.save(user);
         mlKemKeyProvisionService.provisionUserMlKemKey(saved.getId());
+        if (saved.getRole() == UserRole.ELDER) {
+            inactivityRuleProvisionService.provisionDefaultRule(saved.getId());
+        }
         log.info("[SignUp] userId={}, phone={}, role={}", saved.getId(), saved.getPhone(), saved.getRole());
         return SignUpResponse.from(saved);
     }

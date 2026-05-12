@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,10 +16,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.oncare.oncare24.analysis.event.InactivityAnalysisRefreshRequestedEvent;
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
-import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
@@ -60,7 +60,7 @@ class LocationReportServiceTest {
     private EncryptedSourceEventService encryptedSourceEventService;
 
     @Mock
-    private AnalysisRefreshService analysisRefreshService;
+    private ApplicationEventPublisher eventPublisher;
 
     private LocationReportService locationReportService;
 
@@ -73,7 +73,7 @@ class LocationReportServiceTest {
                 userRepository,
                 geofencingService,
                 encryptedSourceEventService,
-                analysisRefreshService
+                eventPublisher
         );
     }
 
@@ -127,7 +127,10 @@ class LocationReportServiceTest {
         DeviceStatusSourcePayload capturedDevicePayload = (DeviceStatusSourcePayload) devicePayloadCaptor.getValue();
         assertThat(capturedDevicePayload.wardId()).isEqualTo(WARD_ID);
         assertThat(capturedDevicePayload.deviceStatus()).isEqualTo(com.oncare.oncare24.location.entity.DeviceState.ACTIVE);
-        verify(analysisRefreshService, times(2)).refreshInactivityState(WARD_ID);
+        ArgumentCaptor<InactivityAnalysisRefreshRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(InactivityAnalysisRefreshRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().wardId()).isEqualTo(WARD_ID);
     }
 
     private LocationReport withId(LocationReport report, Long id) {

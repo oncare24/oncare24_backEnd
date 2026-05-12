@@ -2,7 +2,7 @@ package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
-import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
+import com.oncare.oncare24.analysis.event.MedicationAnalysisRefreshRequestedEvent;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
@@ -20,6 +20,7 @@ import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -35,7 +36,7 @@ public class MedicationLogService {
     private final GuardianWardRepository guardianWardRepository;
     private final UserRepository userRepository;
     private final EncryptedSourceEventService encryptedSourceEventService;
-    private final AnalysisRefreshService analysisRefreshService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public MedicationLogResponse create(Long currentUserId, CreateMedicationLogRequest request) {
@@ -83,7 +84,7 @@ public class MedicationLogService {
                 payload
         );
         saved.linkEncryptedActivityLog(encryptedLog.getId());
-        analysisRefreshService.refreshMedicationState(saved.getWardId());
+        eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(saved.getWardId()));
         return MedicationLogResponse.from(saved, payload);
     }
 

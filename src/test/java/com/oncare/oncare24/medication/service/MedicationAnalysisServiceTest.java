@@ -28,6 +28,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.DayOfWeek;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Optional;
 
@@ -178,6 +180,63 @@ class MedicationAnalysisServiceTest {
         );
     }
 
+    @Test
+    void analyzeWardMedication_usesOnlyMatchingWeeklyDayRows() {
+        LocalDate analysisDate = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY));
+        MedicationSchedule monday = schedule(SCHEDULE_ID);
+        MedicationSchedule wednesday = schedule(SCHEDULE_ID + 1);
+        MedicationSchedule friday = schedule(SCHEDULE_ID + 2);
+        EncryptedActivityLog mondayLog = encryptedLog("medication_schedule", SCHEDULE_ID, analysisDate.atTime(8, 0));
+        EncryptedActivityLog wednesdayLog = encryptedLog("medication_schedule", SCHEDULE_ID + 1, analysisDate.atTime(8, 0));
+        EncryptedActivityLog fridayLog = encryptedLog("medication_schedule", SCHEDULE_ID + 2, analysisDate.atTime(8, 0));
+
+        when(medicationScheduleRepository.findByWardIdAndActiveTrueOrderByScheduledTimeAsc(WARD_ID))
+                .thenReturn(List.of(monday, wednesday, friday));
+        when(mlKemKeyProvisionService.readPrivateKey(WARD_ID)).thenReturn(new byte[] {1});
+        when(encryptedActivityLogRepository.findFirstBySourceTableAndSourceIdAndEventTypeOrderByOccurredAtDesc(
+                eq("medication_schedule"),
+                any(Long.class),
+                eq(ActivityEventType.MEDICATION_EVENT)
+        )).thenAnswer(invocation -> {
+            Long sourceId = invocation.getArgument(1);
+            if (sourceId.equals(SCHEDULE_ID)) {
+                return Optional.of(mondayLog);
+            }
+            if (sourceId.equals(SCHEDULE_ID + 1)) {
+                return Optional.of(wednesdayLog);
+            }
+            if (sourceId.equals(SCHEDULE_ID + 2)) {
+                return Optional.of(fridayLog);
+            }
+            return Optional.empty();
+        });
+        when(commonCryptoService.decryptActivityLogPayload(
+                any(),
+                any(byte[].class),
+                any(),
+                eq(WARD_ID),
+                eq(CommonCryptoService.OWNER_TYPE_USER),
+                any(byte[].class),
+                eq(MedicationSchedulePayload.class)
+        )).thenReturn(
+                schedulePayload(SCHEDULE_ID, DayOfWeek.MONDAY),
+                schedulePayload(SCHEDULE_ID + 1, DayOfWeek.WEDNESDAY),
+                schedulePayload(SCHEDULE_ID + 2, DayOfWeek.FRIDAY)
+        );
+        when(encryptedActivityLogRepository.findByWardIdAndEventTypeAndSourceTableAndOccurredAtBetweenOrderByOccurredAtAsc(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_log"),
+                any(LocalDateTime.class),
+                any(LocalDateTime.class)
+        )).thenReturn(List.of());
+
+        List<MedicationAnalysisResult> results = medicationAnalysisService.analyzeWardMedication(WARD_ID, analysisDate);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).scheduleId()).isEqualTo(SCHEDULE_ID + 1);
+    }
+
 
     private MedicationAnalysisResult analyzeWithLog(LocalDate analysisDate, LocalDateTime takenAt) {
         return analyzeWithLogs(analysisDate, List.of(logPayload(takenAt)));
@@ -232,23 +291,31 @@ class MedicationAnalysisServiceTest {
     }
 
     private MedicationSchedule schedule() {
+        return schedule(SCHEDULE_ID);
+    }
+
+    private MedicationSchedule schedule(Long scheduleId) {
         MedicationSchedule schedule = MedicationSchedule.builder()
                 .wardId(WARD_ID)
                 .build();
-        ReflectionTestUtils.setField(schedule, "id", SCHEDULE_ID);
+        ReflectionTestUtils.setField(schedule, "id", scheduleId);
         return schedule;
     }
 
     private MedicationSchedulePayload schedulePayload() {
+        return schedulePayload(SCHEDULE_ID, null);
+    }
+
+    private MedicationSchedulePayload schedulePayload(Long scheduleId, DayOfWeek dayOfWeek) {
         return new MedicationSchedulePayload(
                 "CREATED",
-                SCHEDULE_ID,
+                scheduleId,
                 "morning pill",
                 LocalTime.of(8, 0),
                 10,
                 30,
-                MedicationScheduleType.DAILY,
-                null,
+                dayOfWeek == null ? MedicationScheduleType.DAILY : MedicationScheduleType.WEEKLY,
+                dayOfWeek,
                 true
         );
     }

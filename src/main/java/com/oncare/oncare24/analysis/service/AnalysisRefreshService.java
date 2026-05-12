@@ -5,6 +5,8 @@ import com.oncare.oncare24.medication.service.MedicationAnalysisService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -17,6 +19,7 @@ public class AnalysisRefreshService {
     private final MedicationAnalysisService medicationAnalysisService;
     private final InactivityAnalysisService inactivityAnalysisService;
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void refreshMedicationState(Long wardId) {
         try {
             medicationAnalysisService.analyzeWardMedication(wardId, LocalDate.now());
@@ -26,6 +29,7 @@ public class AnalysisRefreshService {
         }
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void refreshInactivityState(Long wardId) {
         try {
             inactivityAnalysisService.analyzeWardInactivity(wardId, LocalDateTime.now());

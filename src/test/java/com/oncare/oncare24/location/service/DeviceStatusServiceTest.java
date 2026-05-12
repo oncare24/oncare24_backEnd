@@ -16,10 +16,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
-import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
+import com.oncare.oncare24.analysis.event.InactivityAnalysisRefreshRequestedEvent;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
@@ -48,7 +49,7 @@ class DeviceStatusServiceTest {
     private EncryptedSourceEventService encryptedSourceEventService;
 
     @Mock
-    private AnalysisRefreshService analysisRefreshService;
+    private ApplicationEventPublisher eventPublisher;
 
     private DeviceStatusService deviceStatusService;
 
@@ -59,7 +60,7 @@ class DeviceStatusServiceTest {
                 userRepository,
                 notificationService,
                 encryptedSourceEventService,
-                analysisRefreshService
+                eventPublisher
         );
     }
 
@@ -96,6 +97,9 @@ class DeviceStatusServiceTest {
         assertThat(capturedPayload.sourceId()).isEqualTo(DEVICE_STATUS_ID);
         assertThat(capturedPayload.deviceStatus()).isEqualTo(DeviceState.DISCONNECTED);
         assertThat(capturedPayload.disconnectedAt()).isNotNull();
-        verify(analysisRefreshService).refreshInactivityState(WARD_ID);
+        ArgumentCaptor<InactivityAnalysisRefreshRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(InactivityAnalysisRefreshRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().wardId()).isEqualTo(WARD_ID);
     }
 }

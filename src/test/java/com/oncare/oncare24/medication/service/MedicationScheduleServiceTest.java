@@ -2,7 +2,7 @@ package com.oncare.oncare24.medication.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
-import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
+import com.oncare.oncare24.analysis.event.MedicationAnalysisRefreshRequestedEvent;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
@@ -23,10 +23,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +39,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class MedicationScheduleServiceTest {
@@ -59,7 +62,7 @@ class MedicationScheduleServiceTest {
     private EncryptedSourceEventService encryptedSourceEventService;
 
     @Mock
-    private AnalysisRefreshService analysisRefreshService;
+    private ApplicationEventPublisher eventPublisher;
 
     private MedicationScheduleService medicationScheduleService;
 
@@ -70,7 +73,7 @@ class MedicationScheduleServiceTest {
                 guardianWardRepository,
                 userRepository,
                 encryptedSourceEventService,
-                analysisRefreshService
+                eventPublisher
         );
     }
 
@@ -123,7 +126,7 @@ class MedicationScheduleServiceTest {
         assertThat(capturedPayload.medicationName()).isEqualTo("morning pill");
         assertThat(capturedPayload.scheduledTime()).isEqualTo(LocalTime.of(8, 0));
         assertThat(capturedPayload.allowedDelayMinutes()).isEqualTo(30);
-        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
+        verifyMedicationRefreshEventPublished();
     }
 
     @Test
@@ -179,7 +182,7 @@ class MedicationScheduleServiceTest {
         assertThat(savedSchedule.getScheduleType()).isNull();
         assertThat(savedSchedule.getDayOfWeek()).isNull();
         assertThat(savedSchedule.getEncryptedActivityLogId()).isNull();
-        verifyNoInteractions(analysisRefreshService);
+        verifyNoInteractions(eventPublisher);
         verifyNoMoreInteractions(medicationScheduleRepository);
     }
 
@@ -262,7 +265,7 @@ class MedicationScheduleServiceTest {
         assertThat(schedule.getScheduleType()).isNull();
         assertThat(schedule.getDayOfWeek()).isNull();
         assertThat(schedule.getEncryptedActivityLogId()).isEqualTo(902L);
-        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
+        verifyMedicationRefreshEventPublished();
     }
 
     @Test
@@ -282,7 +285,98 @@ class MedicationScheduleServiceTest {
         medicationScheduleService.deactivate(WARD_ID, SCHEDULE_ID);
 
         assertThat(schedule.isActive()).isFalse();
-        verify(analysisRefreshService).refreshMedicationState(WARD_ID);
+        verifyMedicationRefreshEventPublished();
+    }
+
+    @Test
+    void create_succeedsForWeeklyScheduleWithMultipleDaysOfWeek() {
+        stubUser(WARD_ID, UserRole.ELDER);
+        when(medicationScheduleRepository.save(any(MedicationSchedule.class)))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID + 1))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID + 2));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                any(),
+                any(),
+                any()
+        )).thenReturn(encryptedLog(901L));
+
+        MedicationScheduleResponse response = medicationScheduleService.create(
+                WARD_ID,
+                new CreateMedicationScheduleRequest(
+                        WARD_ID,
+                        "morning pill",
+                        LocalTime.of(8, 0),
+                        10,
+                        30,
+                        MedicationScheduleType.WEEKLY,
+                        null,
+                        List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)
+                )
+        );
+
+        assertThat(response.scheduleId()).isEqualTo(SCHEDULE_ID);
+        assertThat(response.scheduleIds()).containsExactly(SCHEDULE_ID, SCHEDULE_ID + 1, SCHEDULE_ID + 2);
+        assertThat(response.daysOfWeek()).containsExactly(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY);
+        verify(medicationScheduleRepository, times(3)).save(any(MedicationSchedule.class));
+        ArgumentCaptor<Object> payloadCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(encryptedSourceEventService, times(3)).saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                any(),
+                any(),
+                payloadCaptor.capture()
+        );
+        assertThat(payloadCaptor.getAllValues())
+                .map(MedicationSchedulePayload.class::cast)
+                .extracting(MedicationSchedulePayload::dayOfWeek)
+                .containsExactly(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY);
+        verifyMedicationRefreshEventPublished();
+    }
+
+    @Test
+    void create_deduplicatesWeeklyDaysOfWeek() {
+        stubUser(WARD_ID, UserRole.ELDER);
+        when(medicationScheduleRepository.save(any(MedicationSchedule.class)))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID))
+                .thenAnswer(invocation -> withId(invocation.getArgument(0), SCHEDULE_ID + 1));
+        when(encryptedSourceEventService.saveRequiredSourceEvent(
+                eq(WARD_ID),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                any(),
+                any(),
+                any()
+        )).thenReturn(encryptedLog(901L));
+
+        MedicationScheduleResponse response = medicationScheduleService.create(
+                WARD_ID,
+                new CreateMedicationScheduleRequest(
+                        WARD_ID,
+                        "morning pill",
+                        LocalTime.of(8, 0),
+                        10,
+                        30,
+                        MedicationScheduleType.WEEKLY,
+                        DayOfWeek.MONDAY,
+                        List.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.MONDAY)
+                )
+        );
+
+        assertThat(response.scheduleIds()).containsExactly(SCHEDULE_ID, SCHEDULE_ID + 1);
+        assertThat(response.daysOfWeek()).containsExactly(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY);
+        verify(medicationScheduleRepository, times(2)).save(any(MedicationSchedule.class));
+    }
+
+    private void verifyMedicationRefreshEventPublished() {
+        ArgumentCaptor<MedicationAnalysisRefreshRequestedEvent> eventCaptor =
+                ArgumentCaptor.forClass(MedicationAnalysisRefreshRequestedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().wardId()).isEqualTo(WARD_ID);
     }
 
     @Test

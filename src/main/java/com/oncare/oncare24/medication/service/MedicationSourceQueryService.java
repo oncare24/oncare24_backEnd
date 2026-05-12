@@ -156,9 +156,17 @@ public class MedicationSourceQueryService {
                 payload.allowedDelayMinutes(),
                 payload.scheduleType(),
                 payload.dayOfWeek(),
+                normalizeDays(payload),
                 payload.active(),
                 event.occurredAt()
         );
+    }
+
+    private List<java.time.DayOfWeek> normalizeDays(MedicationSchedulePayload payload) {
+        if (payload.daysOfWeek() != null && !payload.daysOfWeek().isEmpty()) {
+            return payload.daysOfWeek();
+        }
+        return payload.dayOfWeek() == null ? List.of() : List.of(payload.dayOfWeek());
     }
 
     private MedicationLogSourceResponse toLogResponse(MedicationLogPayload payload) {

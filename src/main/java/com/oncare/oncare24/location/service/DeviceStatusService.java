@@ -1,7 +1,7 @@
 package com.oncare.oncare24.location.service;
 
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
-import com.oncare.oncare24.analysis.service.AnalysisRefreshService;
+import com.oncare.oncare24.analysis.event.InactivityAnalysisRefreshRequestedEvent;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
@@ -12,6 +12,7 @@ import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,7 +49,7 @@ public class DeviceStatusService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final EncryptedSourceEventService encryptedSourceEventService;
-    private final AnalysisRefreshService analysisRefreshService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 5분마다 실행. 트랜잭션은 메서드 단위로 짧게.
@@ -81,7 +82,7 @@ public class DeviceStatusService {
                     disconnectedAt,
                     deviceStatusPayload(device, disconnectedAt)
             );
-            analysisRefreshService.refreshInactivityState(device.getUserId());
+            eventPublisher.publishEvent(new InactivityAnalysisRefreshRequestedEvent(device.getUserId()));
 
             if (!device.isDisconnectAlreadyNotified()) {
                 String wardName = userRepository.findById(device.getUserId())

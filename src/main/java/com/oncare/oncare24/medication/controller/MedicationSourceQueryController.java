@@ -6,6 +6,7 @@ import com.oncare.oncare24.medication.dto.MedicationLogSourceResponse;
 import com.oncare.oncare24.medication.dto.MedicationScheduleSourceResponse;
 import com.oncare.oncare24.medication.service.MedicationSourceQueryService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -23,17 +24,22 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/wards/{wardId}")
 @RequiredArgsConstructor
-@Tag(name = "MedicationSource", description = "Encrypted medication source queries")
+@Tag(name = "MedicationSource", description = "복약 암호화 원본 조회")
 @SecurityRequirement(name = "BearerAuth")
 public class MedicationSourceQueryController {
 
     private final MedicationSourceQueryService medicationSourceQueryService;
 
     @GetMapping("/medication-schedules/source")
-    @Operation(summary = "Find medication schedules from encrypted source events")
+    @Operation(
+            summary = "복약 일정 원본 조회",
+            description = "encrypted_activity_log에 저장된 암호화 복약 일정 이벤트를 복호화하여 조회합니다."
+    )
     public ApiResponse<List<MedicationScheduleSourceResponse>> findMedicationSchedules(
             @AuthenticationPrincipal CustomUserDetails userDetails,
+            @Parameter(description = "조회할 피보호자 ID", example = "2")
             @PathVariable Long wardId,
+            @Parameter(description = "비활성화된 복약 일정 포함 여부", example = "false")
             @RequestParam(defaultValue = "false") boolean includeInactive
     ) {
         return ApiResponse.success(
@@ -46,10 +52,15 @@ public class MedicationSourceQueryController {
     }
 
     @GetMapping("/medication-logs/source")
-    @Operation(summary = "Find medication logs from encrypted source events")
+    @Operation(
+            summary = "복약 기록 원본 조회",
+            description = "encrypted_activity_log에 저장된 암호화 복약 기록 이벤트를 복호화하여 조회합니다."
+    )
     public ApiResponse<List<MedicationLogSourceResponse>> findMedicationLogs(
             @AuthenticationPrincipal CustomUserDetails userDetails,
+            @Parameter(description = "조회할 피보호자 ID", example = "2")
             @PathVariable Long wardId,
+            @Parameter(description = "조회할 복약 날짜. 지정하지 않으면 전체 기록을 조회합니다.", example = "2026-05-13")
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
     ) {
         return ApiResponse.success(

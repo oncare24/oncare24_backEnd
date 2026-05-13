@@ -3,6 +3,7 @@ package com.oncare.oncare24.guardian.dto;
 import com.oncare.oncare24.guardian.entity.GuardianWard;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.user.entity.User;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
 
@@ -17,13 +18,21 @@ import java.time.LocalDateTime;
  * </ul>
  */
 public record ReceivedInvitationResponse(
+        @Schema(description = "초대 ID", example = "10")
         Long id,
+        @Schema(description = "보호자 ID", example = "1")
         Long guardianId,
+        @Schema(description = "보호자 이름", example = "김보호")
         String guardianName,
+        @Schema(description = "마스킹된 보호자 전화번호", example = "010-****-1234")
         String guardianPhoneMasked,
+        @Schema(description = "보호자와 피보호자의 관계", example = "딸")
         String relationship,
+        @Schema(description = "초대 상태", example = "PENDING")
         GuardianWardStatus status,
+        @Schema(description = "초대 만료 일시", example = "2026-05-14T10:00:00")
         LocalDateTime expiresAt,
+        @Schema(description = "초대 생성 일시", example = "2026-05-13T10:00:00")
         LocalDateTime createdAt
 ) {
     public static ReceivedInvitationResponse from(GuardianWard gw, User guardian) {

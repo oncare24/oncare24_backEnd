@@ -2,6 +2,7 @@ package com.oncare.oncare24.guardian.dto;
 
 import com.oncare.oncare24.guardian.entity.GuardianWard;
 import com.oncare.oncare24.user.entity.User;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDateTime;
 
@@ -12,13 +13,21 @@ import java.time.LocalDateTime;
  * 응답에 평문 노출은 PII 최소노출 원칙 위배. 끝 4자리만 표시.
  */
 public record WardResponse(
+        @Schema(description = "피보호자 ID", example = "2")
         Long wardId,
+        @Schema(description = "피보호자 이름", example = "박피보호")
         String name,
+        @Schema(description = "마스킹된 피보호자 전화번호", example = "010-****-5678")
         String phoneMasked,
+        @Schema(description = "보호자와 피보호자의 관계", example = "딸")
         String relationship,
+        @Schema(description = "피보호자 현재 상태", example = "INSIDE")
         WardStatus status,
+        @Schema(description = "마지막 위치 표시 문구", example = "서울시 강남구")
         String locationLabel,
+        @Schema(description = "마지막 위치 보고 후 경과 시간(분)", example = "12")
         Long lastReportedMinutesAgo,
+        @Schema(description = "연동 완료 일시", example = "2026-05-13T10:00:00")
         LocalDateTime linkedAt
 ) {
     /**

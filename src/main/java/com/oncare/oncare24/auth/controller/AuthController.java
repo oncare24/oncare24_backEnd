@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
-@Tag(name = "Auth", description = "회원가입 / 로그인 / 로그아웃 / 토큰 재발급")
+@Tag(name = "Auth", description = "계정 생성 및 인증")
 public class AuthController {
 
     private final AuthService authService;
@@ -33,7 +33,7 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(
             summary = "회원가입",
-            description = "전화번호(하이픈 제외) + 비밀번호(8자 이상) + 이름 + 역할(ELDER/GUARDIAN)로 회원가입합니다."
+            description = "피보호자 또는 보호자 계정을 생성합니다. 회원가입 시 사용자별 ML-KEM 키쌍이 생성되어 OpenBao에 저장됩니다."
     )
     public ApiResponse<SignUpResponse> signUp(@Valid @RequestBody SignUpRequest request) {
         return ApiResponse.success(authService.signUp(request));
@@ -42,7 +42,7 @@ public class AuthController {
     @PostMapping("/login")
     @Operation(
             summary = "로그인",
-            description = "전화번호 + 비밀번호로 로그인합니다. accessToken(30분) + refreshToken(14일)을 발급합니다."
+            description = "전화번호와 비밀번호로 로그인하고 JWT Access Token과 Refresh Token을 발급받습니다."
     )
     public ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success(authService.login(request));
@@ -51,7 +51,7 @@ public class AuthController {
     @PostMapping("/reissue")
     @Operation(
             summary = "토큰 재발급",
-            description = "refreshToken으로 새 accessToken/refreshToken 페어를 발급합니다 (Refresh Token Rotation)."
+            description = "Refresh Token을 사용해 새로운 Access Token과 Refresh Token을 발급받습니다."
     )
     public ApiResponse<TokenResponse> reissue(@Valid @RequestBody ReissueRequest request) {
         return ApiResponse.success(authService.reissue(request));
@@ -61,7 +61,7 @@ public class AuthController {
     @SecurityRequirement(name = "BearerAuth")
     @Operation(
             summary = "로그아웃",
-            description = "Redis에 저장된 refreshToken을 삭제합니다. accessToken은 만료까지 유효 (현재 정책)."
+            description = "현재 로그인한 사용자의 Refresh Token을 무효화합니다. 이 API는 인증된 사용자만 호출할 수 있습니다."
     )
     public ApiResponse<Void> logout(@AuthenticationPrincipal CustomUserDetails userDetails) {
         authService.logout(userDetails.getUserId());

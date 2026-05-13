@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/medications/logs")
 @RequiredArgsConstructor
-@Tag(name = "MedicationLog", description = "Medication log management")
+@Tag(name = "MedicationLog", description = "복약 기록")
 @SecurityRequirement(name = "BearerAuth")
 public class MedicationLogController {
 
@@ -29,7 +29,10 @@ public class MedicationLogController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Create medication log")
+    @Operation(
+            summary = "복약 기록 생성",
+            description = "피보호자의 실제 복약 완료 기록을 저장합니다. 복약 기록은 서버 내부에서 encrypted_activity_log에 암호화 이벤트로 함께 저장됩니다."
+    )
     public ApiResponse<MedicationLogResponse> create(
             @AuthenticationPrincipal CustomUserDetails userDetails,
             @Valid @RequestBody CreateMedicationLogRequest request

@@ -1,5 +1,6 @@
 package com.oncare.oncare24.guardian.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -17,9 +18,11 @@ public record CreateInvitationRequest(
                 regexp = "^01[0-9]\\d{7,8}$",
                 message = "전화번호는 하이픈 없이 숫자만 입력해주세요."
         )
+        @Schema(description = "초대할 피보호자 전화번호. 하이픈 없이 숫자만 입력합니다.", example = "01098765432")
         String wardPhone,
 
         @Size(max = 20, message = "관계는 20자 이내로 입력해주세요.")
+        @Schema(description = "보호자와 피보호자의 관계", example = "딸")
         String relationship
 ) {
 }

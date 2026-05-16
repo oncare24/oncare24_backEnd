@@ -190,7 +190,6 @@ Swagger/OpenAPI에는 주요 API 설명과 Bearer 인증 스키마가 추가
 | 복약 일정 수정 | PUT | `/api/medications/schedules/{scheduleId}` | 예 | medicationName, scheduledTime, allowed minutes, scheduleType, active | schedule 정보 | 수정 이벤트 암호화 저장 |
 | 복약 일정 삭제 | DELETE | `/api/medications/schedules/{scheduleId}` | 예 | scheduleId | void | 실제 삭제가 아니라 비활성화 |
 | 복약 기록 생성 | POST | `/api/medications/logs` | 예 | wardId, scheduleId, takenAt, medicationName, logSource | logId 등 | 복약 기록 생성 및 암호화 이벤트 저장 |
-| 복약 기록 조회 | GET | 확인 필요 | 확인 필요 | 확인 필요 | 확인 필요 | 일반 복약 기록 조회 API는 코드에서 확인되지 않음 |
 | 위치 보고 | POST | `/api/locations/reports` | 예 | latitude, longitude, accuracy, reportSource | stored, reportId, reportedAt | ELDER 위치 보고, accuracy 기준 초과 시 저장 안 함 |
 | 마지막 위치 조회 | GET | `/api/locations/last?wardId=` | 예 | wardId | latitude, longitude, deviceState 등 | 보호자가 마지막 위치와 디바이스 상태 조회 |
 | 분석 상태 조회 | GET | `/api/wards/{wardId}/analysis-state` | 예 | wardId | medication, inactivity | 최신 복약/미활동 상태 조회 |

@@ -2,6 +2,10 @@
 
 > 통합 스마트 케어 플랫폼 - LLM 기반 문진형 병원 추천과 Graph RAG 기반 약물 상호작용 분석을 통합하여, 고령자의 건강 관리 및 긴급 대응을 지원합니다.
 
+# 추가나 변경사항
+
+- [Change Summary](./change_summary.md)
+
 ## 🛠 Tech Stack
 
 | Category | Stack |

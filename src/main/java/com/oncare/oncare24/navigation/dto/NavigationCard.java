@@ -59,10 +59,24 @@ public record NavigationCard(
                 null, null, null, null, null, null, null, null);
     }
 
+    /** 출발 카드 (path 포함 버전) */
+    public static NavigationCard start(String instruction, List<List<Double>> path) {
+        return new NavigationCard(NavigationCardType.START, instruction, 0, 0,
+                null, null, null, null, null, null, null, path);
+    }
+
+
+
     /** 도착 카드 */
     public static NavigationCard arrival(String instruction) {
         return new NavigationCard(NavigationCardType.ARRIVAL, instruction, 0, 0,
                 null, null, null, null, null, null, null, null);
+    }
+
+    /** 도착 카드 (path 포함 버전) */
+    public static NavigationCard arrival(String instruction, List<List<Double>> path) {
+        return new NavigationCard(NavigationCardType.ARRIVAL, instruction, 0, 0,
+                null, null, null, null, null, null, null, path);
     }
 
     /** 버스 카드 */

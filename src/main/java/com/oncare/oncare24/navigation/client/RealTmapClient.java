@@ -123,7 +123,12 @@ public class RealTmapClient implements TmapClient {
             int totalTime = 0;
             List<NavigationCard> cards = new ArrayList<>();
 
-            // Point feature와 다음 LineString feature를 짝지어 카드 생성
+            // (디버그) features 구조 — 검증 끝나면 지워도 됨
+            for (int k = 0; k < features.size(); k++) {
+                log.info("[TMAP] features[{}] = {}", k, features.get(k).path("geometry").path("type").asText());
+            }
+
+            // Point feature와 다음 Point 전까지의 모든 LineString을 짝지어 카드 생성
             for (int i = 0; i < features.size(); i++) {
                 JsonNode feature = features.get(i);
                 JsonNode props = feature.path("properties");
@@ -141,28 +146,36 @@ public class RealTmapClient implements TmapClient {
                 int turnType = props.path("turnType").asInt(-1);
                 String desc = props.path("description").asText("");
 
-                // 다음 LineString feature 찾기 (있으면 path/distance/time 가져옴)
-                List<List<Double>> path = null;
+                // 이 Point에 딸린 모든 LineString을 흡수 (다음 Point 전까지)
+                List<List<Double>> path = new ArrayList<>();
                 int dist = 0;
                 int time = 0;
-                if (i + 1 < features.size()) {
-                    JsonNode next = features.get(i + 1);
-                    if ("LineString".equals(next.path("geometry").path("type").asText())) {
-                        path = extractLineStringCoords(next.path("geometry").path("coordinates"));
-                        dist = next.path("properties").path("distance").asInt(0);
-                        time = next.path("properties").path("time").asInt(0);
-                    }
+                int j = i + 1;
+                while (j < features.size()) {
+                    JsonNode next = features.get(j);
+                    String nextType = next.path("geometry").path("type").asText();
+                    if (!"LineString".equals(nextType)) break;  // 다음 Point 만나면 중단
+                    path.addAll(extractLineStringCoords(next.path("geometry").path("coordinates")));
+                    dist += next.path("properties").path("distance").asInt(0);
+                    time += next.path("properties").path("time").asInt(0);
+                    j++;
                 }
+                log.info("[TMAP] card i={} turnType={} pathSize={} segments={}",
+                        i, turnType, path.size(), j - i - 1);
 
                 if (desc.isBlank()) continue;
 
+// instruction 안의 "Nm" 거리 표기를 합산된 실제 거리로 교체
+// 예: "우회전 후 보행자도로를 따라 150m 이동" → "...2566m 이동"
+                String fixedDesc = (dist > 0) ? desc.replaceFirst("\\d+m", dist + "m") : desc;
+
                 NavigationCardType cardType = mapTurnType(turnType);
                 if (cardType == NavigationCardType.START) {
-                    cards.add(NavigationCard.start(desc));
+                    cards.add(NavigationCard.start(fixedDesc, path));            // ← desc → fixedDesc
                 } else if (cardType == NavigationCardType.ARRIVAL) {
-                    cards.add(NavigationCard.arrival(endName + " 도착"));
+                    cards.add(NavigationCard.arrival(endName + " 도착", path));
                 } else {
-                    cards.add(NavigationCard.walk(cardType, desc, dist, time, path));
+                    cards.add(NavigationCard.walk(cardType, fixedDesc, dist, time, path));  // ← desc → fixedDesc
                 }
             }
 

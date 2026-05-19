@@ -3,6 +3,8 @@ package com.oncare.oncare24.analysis.repository;
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -51,4 +53,12 @@ public interface EncryptedActivityLogRepository extends JpaRepository<EncryptedA
             ActivityEventType eventType,
             String sourceTable
     );
+
+    @Query("""
+            select distinct log.dataKeyId
+            from EncryptedActivityLog log
+            where log.wardId = :wardId
+              and log.dataKeyId is not null
+            """)
+    List<String> findDistinctDataKeyIdsByWardId(@Param("wardId") Long wardId);
 }

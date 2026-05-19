@@ -5,15 +5,18 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
 import com.oncare.oncare24.security.crypto.ffi.JnaCryptoFfiClient;
 import com.oncare.oncare24.security.crypto.ffi.MlKemKeyPair;
 import com.oncare.oncare24.security.key.DataKeyProvisionService;
@@ -26,10 +29,12 @@ class KeyEnvelopeProvisionServiceTest {
         OpenBaoKvClient openBaoKvClient = mock(OpenBaoKvClient.class);
         DataKeyProvisionService dataKeyProvisionService = mock(DataKeyProvisionService.class);
         MlKemKeyProvisionService mlKemKeyProvisionService = mock(MlKemKeyProvisionService.class);
+        EncryptedActivityLogRepository encryptedActivityLogRepository = mock(EncryptedActivityLogRepository.class);
         KeyEnvelopeProvisionService service = new KeyEnvelopeProvisionService(
                 openBaoKvClient,
                 dataKeyProvisionService,
-                mlKemKeyProvisionService
+                mlKemKeyProvisionService,
+                encryptedActivityLogRepository
         );
         ReflectionTestUtils.setField(service, "cryptoEnabled", true);
 
@@ -39,6 +44,7 @@ class KeyEnvelopeProvisionServiceTest {
                 .thenReturn(new DataKeyProvisionService.ProvisionedDataKey("datakey-test", dataKey));
         when(openBaoKvClient.exists("cap2/key-envelopes/datakey-test/guardian-20")).thenReturn(false);
         when(mlKemKeyProvisionService.readPublicKey(20L)).thenReturn(keyPair.publicKey());
+        when(encryptedActivityLogRepository.findDistinctDataKeyIdsByWardId(10L)).thenReturn(List.of());
 
         service.provisionForAcceptedGuardian(10L, 20L);
 
@@ -53,19 +59,55 @@ class KeyEnvelopeProvisionServiceTest {
         OpenBaoKvClient openBaoKvClient = mock(OpenBaoKvClient.class);
         DataKeyProvisionService dataKeyProvisionService = mock(DataKeyProvisionService.class);
         MlKemKeyProvisionService mlKemKeyProvisionService = mock(MlKemKeyProvisionService.class);
+        EncryptedActivityLogRepository encryptedActivityLogRepository = mock(EncryptedActivityLogRepository.class);
         KeyEnvelopeProvisionService service = new KeyEnvelopeProvisionService(
                 openBaoKvClient,
                 dataKeyProvisionService,
-                mlKemKeyProvisionService
+                mlKemKeyProvisionService,
+                encryptedActivityLogRepository
         );
         ReflectionTestUtils.setField(service, "cryptoEnabled", true);
         when(dataKeyProvisionService.getOrCreateTodayDataKey())
                 .thenReturn(new DataKeyProvisionService.ProvisionedDataKey("datakey-test", new byte[32]));
         when(openBaoKvClient.exists("cap2/key-envelopes/datakey-test/guardian-20")).thenReturn(true);
+        when(encryptedActivityLogRepository.findDistinctDataKeyIdsByWardId(10L)).thenReturn(List.of("datakey-test"));
 
         service.provisionForAcceptedGuardian(10L, 20L);
 
         verify(mlKemKeyProvisionService, never()).readPublicKey(20L);
         verify(openBaoKvClient, never()).put(eq("cap2/key-envelopes/datakey-test/guardian-20"), anyMap());
+    }
+
+    @Test
+    void provisionGuardianAccessForExistingWardLogsCreatesOnlyMissingEnvelopes() {
+        OpenBaoKvClient openBaoKvClient = mock(OpenBaoKvClient.class);
+        DataKeyProvisionService dataKeyProvisionService = mock(DataKeyProvisionService.class);
+        MlKemKeyProvisionService mlKemKeyProvisionService = mock(MlKemKeyProvisionService.class);
+        EncryptedActivityLogRepository encryptedActivityLogRepository = mock(EncryptedActivityLogRepository.class);
+        KeyEnvelopeProvisionService service = new KeyEnvelopeProvisionService(
+                openBaoKvClient,
+                dataKeyProvisionService,
+                mlKemKeyProvisionService,
+                encryptedActivityLogRepository
+        );
+        ReflectionTestUtils.setField(service, "cryptoEnabled", true);
+
+        byte[] dataKey = new JnaCryptoFfiClient().generateDataKey();
+        MlKemKeyPair keyPair = new JnaCryptoFfiClient().generateMlKemKeypair();
+        when(encryptedActivityLogRepository.findDistinctDataKeyIdsByWardId(10L))
+                .thenReturn(List.of("datakey-old", "datakey-existing", "datakey-old"));
+        when(openBaoKvClient.exists("cap2/key-envelopes/datakey-old/guardian-20")).thenReturn(false);
+        when(openBaoKvClient.exists("cap2/key-envelopes/datakey-existing/guardian-20")).thenReturn(true);
+        when(dataKeyProvisionService.getDataKey("datakey-old"))
+                .thenReturn(new DataKeyProvisionService.ProvisionedDataKey("datakey-old", dataKey));
+        when(mlKemKeyProvisionService.readPublicKey(20L)).thenReturn(keyPair.publicKey());
+
+        int created = service.provisionGuardianAccessForExistingWardLogs(20L, 10L);
+
+        assertEquals(1, created);
+        verify(dataKeyProvisionService).getDataKey("datakey-old");
+        verify(dataKeyProvisionService, never()).getDataKey("datakey-existing");
+        verify(openBaoKvClient, times(1)).put(eq("cap2/key-envelopes/datakey-old/guardian-20"), anyMap());
+        verify(openBaoKvClient, never()).put(eq("cap2/key-envelopes/datakey-existing/guardian-20"), anyMap());
     }
 }

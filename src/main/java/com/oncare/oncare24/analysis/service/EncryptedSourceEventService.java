@@ -13,6 +13,7 @@ import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.security.crypto.dto.EncryptedPayload;
 import com.oncare.oncare24.security.crypto.service.CommonCryptoService;
+import com.oncare.oncare24.security.envelope.KeyEnvelopeProvisionService;
 import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class EncryptedSourceEventService {
     private final MlKemKeyProvisionService mlKemKeyProvisionService;
     private final CommonCryptoService commonCryptoService;
     private final EncryptedActivityLogService encryptedActivityLogService;
+    private final KeyEnvelopeProvisionService keyEnvelopeProvisionService;
 
     @Value("${oncare.security.crypto.enabled:false}")
     private boolean cryptoEnabled;
@@ -46,27 +48,15 @@ public class EncryptedSourceEventService {
                 wardId,
                 GuardianWardStatus.ACCEPTED
         );
-        if (guardians.isEmpty()) {
-            log.debug("[EncryptedSourceEvent] skipped because no accepted guardian exists. wardId={}, sourceTable={}, sourceId={}",
-                    wardId, sourceTable, sourceId);
-            return;
-        }
-
-        GuardianWard guardian = guardians.get(0);
         try {
-            byte[] wardPublicKey = mlKemKeyProvisionService.readPublicKey(wardId);
-            byte[] guardianPublicKey = mlKemKeyProvisionService.readPublicKey(guardian.getGuardianId());
-            EncryptedPayload encryptedPayload = commonCryptoService.encryptForUserAndGuardian(
+            EncryptedPayload encryptedPayload = encryptForWard(
                     payload,
                     wardId,
-                    eventType.name(),
+                    eventType,
                     occurredAt,
                     sourceTable,
                     sourceId,
-                    wardId,
-                    wardPublicKey,
-                    guardian.getGuardianId(),
-                    guardianPublicKey
+                    guardians
             );
             encryptedActivityLogService.saveEncryptedActivityLog(
                     wardId,
@@ -104,24 +94,15 @@ public class EncryptedSourceEventService {
                 wardId,
                 GuardianWardStatus.ACCEPTED
         );
-        if (guardians.isEmpty()) {
-            throw new IllegalStateException("accepted guardian is required to encrypt source event. wardId=" + wardId);
-        }
 
-        GuardianWard guardian = guardians.get(0);
-        byte[] wardPublicKey = mlKemKeyProvisionService.readPublicKey(wardId);
-        byte[] guardianPublicKey = mlKemKeyProvisionService.readPublicKey(guardian.getGuardianId());
-        EncryptedPayload encryptedPayload = commonCryptoService.encryptForUserAndGuardian(
+        EncryptedPayload encryptedPayload = encryptForWard(
                 payload,
                 wardId,
-                eventType.name(),
+                eventType,
                 occurredAt,
                 sourceTable,
                 sourceId,
-                wardId,
-                wardPublicKey,
-                guardian.getGuardianId(),
-                guardianPublicKey
+                guardians
         );
         return encryptedActivityLogService.saveEncryptedActivityLog(
                 wardId,
@@ -131,5 +112,55 @@ public class EncryptedSourceEventService {
                 occurredAt,
                 encryptedPayload
         );
+    }
+
+    private EncryptedPayload encryptForWard(
+            Object payload,
+            Long wardId,
+            ActivityEventType eventType,
+            LocalDateTime occurredAt,
+            String sourceTable,
+            Long sourceId,
+            List<GuardianWard> guardians
+    ) {
+        byte[] wardPublicKey = mlKemKeyProvisionService.readPublicKey(wardId);
+        EncryptedPayload encryptedPayload;
+        if (guardians.isEmpty()) {
+            encryptedPayload = commonCryptoService.encryptForUser(
+                    payload,
+                    wardId,
+                    eventType.name(),
+                    occurredAt,
+                    sourceTable,
+                    sourceId,
+                    wardId,
+                    wardPublicKey
+            );
+        } else {
+            GuardianWard primaryGuardian = guardians.get(0);
+            byte[] guardianPublicKey = mlKemKeyProvisionService.readPublicKey(primaryGuardian.getGuardianId());
+            encryptedPayload = commonCryptoService.encryptForUserAndGuardian(
+                    payload,
+                    wardId,
+                    eventType.name(),
+                    occurredAt,
+                    sourceTable,
+                    sourceId,
+                    wardId,
+                    wardPublicKey,
+                    primaryGuardian.getGuardianId(),
+                    guardianPublicKey
+            );
+        }
+
+        keyEnvelopeProvisionService.provisionUserEnvelopeForDataKeyId(wardId, encryptedPayload.dataKeyId());
+        for (GuardianWard guardian : guardians) {
+            keyEnvelopeProvisionService.provisionGuardianEnvelopeForDataKeyId(
+                    wardId,
+                    guardian.getGuardianId(),
+                    encryptedPayload.dataKeyId()
+            );
+        }
+        return encryptedPayload;
     }
 }

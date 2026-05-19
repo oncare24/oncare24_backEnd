@@ -68,6 +68,22 @@ public class CommonCryptoService {
         return new EncryptedPayload(dataKey.keyId(), encryptedPackage, aadJson);
     }
 
+    public EncryptedPayload encryptForUser(
+            Object plaintextPayload,
+            Map<String, Object> aad,
+            long userId,
+            byte[] userPublicKey
+    ) {
+        return encryptForUserAndGuardian(
+                plaintextPayload,
+                aad,
+                userId,
+                userPublicKey,
+                userId,
+                userPublicKey
+        );
+    }
+
     public byte[] decryptFromPackage(
             String dataKeyId,
             byte[] encryptedPackage,
@@ -123,6 +139,23 @@ public class CommonCryptoService {
                 guardianId,
                 guardianPublicKey
         );
+    }
+
+    public EncryptedPayload encryptForUser(
+            Object plaintextPayload,
+            long wardId,
+            String eventType,
+            LocalDateTime occurredAt,
+            String sourceTable,
+            Long sourceId,
+            long userId,
+            byte[] userPublicKey
+    ) {
+        Map<String, Object> aad = activityLogMetadata(wardId, eventType, occurredAt, sourceTable, sourceId);
+        Map<String, Object> plaintext = new LinkedHashMap<>();
+        plaintext.put("metadata", aad);
+        plaintext.put("payload", plaintextPayload);
+        return encryptForUser(plaintext, aad, userId, userPublicKey);
     }
 
     public EncryptedPayload encryptForUserAndGuardian(

@@ -160,6 +160,9 @@ public class InvitationService {
 
         User guardian = userRepository.findById(invitation.getGuardianId())
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
+        // 팀 요구사항에 따라 보호자-피보호자 관계가 ACCEPTED 상태가 되면, 보호자는 연결 이전에
+        // 생성된 피보호자의 기존 데이터도 조회할 수 있도록 소급 접근 권한을 부여한다.
+        // 단, 각 조회 API의 ACCEPTED 관계 검증은 유지하며 연결되지 않은 사용자의 임의 접근은 차단한다.
         keyEnvelopeProvisionService.provisionForAcceptedGuardian(currentUserId, guardian.getId());
 
         log.info("[Invitation-Accept] invitationId={}, wardId={}, guardianId={}",

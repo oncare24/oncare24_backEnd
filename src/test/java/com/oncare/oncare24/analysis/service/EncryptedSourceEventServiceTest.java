@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import java.time.LocalDateTime;
@@ -23,6 +24,7 @@ import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
 import com.oncare.oncare24.security.crypto.dto.EncryptedPayload;
 import com.oncare.oncare24.security.crypto.service.CommonCryptoService;
+import com.oncare.oncare24.security.envelope.KeyEnvelopeProvisionService;
 import com.oncare.oncare24.security.key.MlKemKeyProvisionService;
 
 class EncryptedSourceEventServiceTest {
@@ -32,11 +34,13 @@ class EncryptedSourceEventServiceTest {
         MlKemKeyProvisionService mlKemKeyProvisionService = mock(MlKemKeyProvisionService.class);
         CommonCryptoService commonCryptoService = mock(CommonCryptoService.class);
         EncryptedActivityLogService encryptedActivityLogService = mock(EncryptedActivityLogService.class);
+        KeyEnvelopeProvisionService keyEnvelopeProvisionService = mock(KeyEnvelopeProvisionService.class);
         EncryptedSourceEventService service = new EncryptedSourceEventService(
                 guardianWardRepository,
                 mlKemKeyProvisionService,
                 commonCryptoService,
-                encryptedActivityLogService
+                encryptedActivityLogService,
+                keyEnvelopeProvisionService
         );
         ReflectionTestUtils.setField(service, "cryptoEnabled", true);
 
@@ -106,6 +110,8 @@ class EncryptedSourceEventServiceTest {
                 any(LocalDateTime.class),
                 eq(encryptedPayload)
         );
+        verify(keyEnvelopeProvisionService).provisionUserEnvelopeForDataKeyId(1L, "datakey-test");
+        verify(keyEnvelopeProvisionService).provisionGuardianEnvelopeForDataKeyId(1L, 20L, "datakey-test");
     }
 
     @Test
@@ -114,11 +120,13 @@ class EncryptedSourceEventServiceTest {
         MlKemKeyProvisionService mlKemKeyProvisionService = mock(MlKemKeyProvisionService.class);
         CommonCryptoService commonCryptoService = mock(CommonCryptoService.class);
         EncryptedActivityLogService encryptedActivityLogService = mock(EncryptedActivityLogService.class);
+        KeyEnvelopeProvisionService keyEnvelopeProvisionService = mock(KeyEnvelopeProvisionService.class);
         EncryptedSourceEventService service = new EncryptedSourceEventService(
                 guardianWardRepository,
                 mlKemKeyProvisionService,
                 commonCryptoService,
-                encryptedActivityLogService
+                encryptedActivityLogService,
+                keyEnvelopeProvisionService
         );
         ReflectionTestUtils.setField(service, "cryptoEnabled", false);
 
@@ -132,36 +140,62 @@ class EncryptedSourceEventServiceTest {
         )).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("crypto must be enabled");
 
-        verifyNoInteractions(guardianWardRepository, mlKemKeyProvisionService, commonCryptoService, encryptedActivityLogService);
+        verifyNoInteractions(guardianWardRepository, mlKemKeyProvisionService, commonCryptoService, encryptedActivityLogService, keyEnvelopeProvisionService);
     }
 
     @Test
-    void saveRequiredSourceEventThrowsWhenNoAcceptedGuardianForMedicationEvent() {
+    void saveRequiredSourceEventStoresWardOnlyEncryptedEventWhenNoAcceptedGuardian() {
         GuardianWardRepository guardianWardRepository = mock(GuardianWardRepository.class);
         MlKemKeyProvisionService mlKemKeyProvisionService = mock(MlKemKeyProvisionService.class);
         CommonCryptoService commonCryptoService = mock(CommonCryptoService.class);
         EncryptedActivityLogService encryptedActivityLogService = mock(EncryptedActivityLogService.class);
+        KeyEnvelopeProvisionService keyEnvelopeProvisionService = mock(KeyEnvelopeProvisionService.class);
         EncryptedSourceEventService service = new EncryptedSourceEventService(
                 guardianWardRepository,
                 mlKemKeyProvisionService,
                 commonCryptoService,
-                encryptedActivityLogService
+                encryptedActivityLogService,
+                keyEnvelopeProvisionService
         );
         ReflectionTestUtils.setField(service, "cryptoEnabled", true);
 
+        EncryptedPayload encryptedPayload = new EncryptedPayload(
+                "datakey-ward-only",
+                new byte[] {1, 2, 3},
+                "{\"ward_id\":1}"
+        );
         when(guardianWardRepository.findByWardIdAndStatus(1L, GuardianWardStatus.ACCEPTED))
                 .thenReturn(List.of());
+        when(mlKemKeyProvisionService.readPublicKey(1L)).thenReturn(new byte[] {1});
+        when(commonCryptoService.encryptForUser(
+                any(),
+                eq(1L),
+                eq(ActivityEventType.MEDICATION_EVENT.name()),
+                any(LocalDateTime.class),
+                eq("medication_schedule"),
+                eq(10L),
+                eq(1L),
+                any(byte[].class)
+        )).thenReturn(encryptedPayload);
 
-        assertThatThrownBy(() -> service.saveRequiredSourceEvent(
+        service.saveRequiredSourceEvent(
                 1L,
                 ActivityEventType.MEDICATION_EVENT,
                 "medication_schedule",
                 10L,
                 LocalDateTime.of(2026, 5, 9, 8, 0),
                 Map.of("medication_name", "morning pill")
-        )).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("accepted guardian is required");
+        );
 
-        verifyNoInteractions(mlKemKeyProvisionService, commonCryptoService, encryptedActivityLogService);
+        verify(encryptedActivityLogService).saveEncryptedActivityLog(
+                eq(1L),
+                eq(ActivityEventType.MEDICATION_EVENT),
+                eq("medication_schedule"),
+                eq(10L),
+                any(LocalDateTime.class),
+                eq(encryptedPayload)
+        );
+        verify(keyEnvelopeProvisionService).provisionUserEnvelopeForDataKeyId(1L, "datakey-ward-only");
+        verify(keyEnvelopeProvisionService, never()).provisionGuardianEnvelopeForDataKeyId(any(), any(), any());
     }
 }

@@ -1,3 +1,4 @@
+// back/src/main/java/com/oncare/oncare24/user/entity/User.java
 package com.oncare.oncare24.user.entity;
 
 import com.oncare.oncare24.global.common.BaseTimeEntity;
@@ -15,15 +16,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * 사용자 엔티티.
- * <p>
- * - 로그인 식별자: {@code phone} (전화번호, 하이픈 제외 숫자만)
- * - 비밀번호: BCrypt 해시
- * - 역할: ELDER / GUARDIAN
- * - {@code phoneVerified}: 휴대전화 인증 완료 여부. 현재는 회원가입 시 false. 나중에 인증 API 추가되면 true로 변경.
- * - {@code email}, {@code fcmToken}: 옵션 컬럼. 회원 정보 수정/알림 연동 시 사용.
- */
 @Entity
 @Getter
 @Table(name = "users",
@@ -61,13 +53,24 @@ public class User extends BaseTimeEntity {
     @Column(name = "phone_verified", nullable = false)
     private boolean phoneVerified;
 
+    /** 만 나이. ELDER 필수, GUARDIAN nullable. Graph RAG ELDERLY 판정용. */
+    @Column(name = "age")
+    private Integer age;
+
+    /** 임신 여부. ELDER 필수, GUARDIAN nullable. Graph RAG PREGNANCY 판정용. */
+    @Column(name = "is_pregnant")
+    private Boolean isPregnant;
+
     @Builder
-    private User(String phone, String password, String name, UserRole role, String email) {
+    private User(String phone, String password, String name, UserRole role, String email,
+                 Integer age, Boolean isPregnant) {
         this.phone = phone;
         this.password = password;
         this.name = name;
         this.role = role;
         this.email = email;
+        this.age = age;
+        this.isPregnant = isPregnant;
         this.phoneVerified = false;
     }
 
@@ -81,9 +84,6 @@ public class User extends BaseTimeEntity {
         this.fcmToken = fcmToken;
     }
 
-    /**
-     * 휴대전화 인증 완료 처리. 추후 SMS 인증 도메인이 추가될 때 사용됩니다.
-     */
     public void verifyPhone() {
         this.phoneVerified = true;
     }

@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Size;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.util.List;
 
 public record UpdateMedicationScheduleRequest(
         @NotBlank
@@ -35,15 +36,20 @@ public record UpdateMedicationScheduleRequest(
         @Schema(description = "복약 일정 유형", example = "DAILY")
         MedicationScheduleType scheduleType,
 
-        @Schema(description = "주 1회 일정의 요일", example = "MONDAY")
+        @Schema(description = "주 1회 일정의 요일 (단일)", example = "MONDAY")
         DayOfWeek dayOfWeek,
+
+        @Schema(description = "주간 반복 일정의 요일 목록", example = "[\"MONDAY\", \"WEDNESDAY\", \"FRIDAY\"]")
+        List<DayOfWeek> daysOfWeek,
 
         @NotNull
         @Schema(description = "복약 일정 활성화 여부", example = "true")
         Boolean active
 ) {
-    @AssertTrue(message = "dayOfWeek is required for WEEKLY schedules.")
+    @AssertTrue(message = "dayOfWeek or daysOfWeek is required for WEEKLY schedules.")
     public boolean isValidWeeklyDayOfWeek() {
-        return scheduleType != MedicationScheduleType.WEEKLY || dayOfWeek != null;
+        return scheduleType != MedicationScheduleType.WEEKLY
+                || dayOfWeek != null
+                || (daysOfWeek != null && !daysOfWeek.isEmpty());
     }
 }

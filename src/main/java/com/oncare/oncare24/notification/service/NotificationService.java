@@ -13,7 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.oncare.oncare24.notification.entity.GuardianNotificationPreference;
+import com.oncare.oncare24.notification.repository.GuardianNotificationPreferenceRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -48,7 +49,7 @@ public class NotificationService {
     private final GuardianWardRepository guardianWardRepository;
     private final UserRepository userRepository;
     private final FcmSender fcmSender;
-
+    private final GuardianNotificationPreferenceRepository preferenceRepository;
     // ============================================================
     // 도메인별 진입점
     // ============================================================
@@ -108,6 +109,51 @@ public class NotificationService {
 
         boolean fcmOk = fcmSender.send(ward.getFcmToken(), title, body);
         history.markFcmSent(fcmOk, LocalDateTime.now());
+    }
+
+    /**
+     * 보호자 → 피보호자 처방전 안전 분석 업데이트 요청 알림.
+     * <p>
+     * <b>호출 시점</b>: 보호자가 ProtegeDetail > 약물 안전 분석 상세에서 "재분석 요청" 버튼을 눌렀을 때.
+     * <p>
+     * <b>WARD_INVITATION 과 유사</b>: 수신자가 ACCEPTED 보호자가 아닌 특정 피보호자 1명.
+     * 단, ACCEPTED 매칭은 호출 측(DrugSafetyAccessChecker)에서 이미 검증됨.
+     * <p>
+     * <b>FCM data payload</b>: 피보호자 앱이 알림 탭 시 처방전 분석 흐름(Intro 화면)으로 라우팅.
+     */
+    @Transactional
+    public void notifyDrugAnalysisRefreshRequest(Long protegeId, String guardianName) {
+        User ward = userRepository.findById(protegeId).orElse(null);
+        if (ward == null) {
+            log.warn("[NOTIFY-SKIP] ward {} not found for drug-analysis refresh", protegeId);
+            return;
+        }
+
+        String title = "처방전 분석 요청";
+        String body = String.format(
+                "%s님이 처방전 안전 분석 업데이트를 요청했어요.",
+                guardianName
+        );
+
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "DRUG_ANALYSIS_REFRESH_REQUEST");
+        dataPayload.put("wardId", String.valueOf(protegeId));
+
+        NotificationHistory history = NotificationHistory.builder()
+                .recipientId(protegeId)
+                .wardId(protegeId)
+                .type(NotificationType.DRUG_ANALYSIS_REFRESH_REQUEST)
+                .title(title)
+                .body(body)
+                .relatedZoneId(null)
+                .build();
+        history = historyRepository.save(history);
+
+        boolean fcmOk = fcmSender.send(ward.getFcmToken(), title, body, dataPayload);
+        history.markFcmSent(fcmOk, LocalDateTime.now());
+
+        log.info("[NOTIFY-DRUG-REFRESH] historyId={}, wardId={}, fcmOk={}",
+                history.getId(), protegeId, fcmOk);
     }
 
     /**
@@ -187,6 +233,162 @@ public class NotificationService {
                     history.getId(), guardian.getId(), fcmOk);
         }
         return sent;
+    }
+
+    /**
+     * 약 미복용 연속 누락 알림 (즉시 알림).
+     * <p>
+     * <b>호출 시점</b>: MedicationMissDetectionService가 미복용 기록 INSERT 직후
+     * "연속 누락"으로 판정했을 때.
+     *
+     * <b>설계 결정</b>
+     * <ul>
+     *     <li>보호자 알림 설정에서 immediateMedicationAlert가 OFF인 보호자는 제외.
+     *         설정 행이 없는 보호자는 default ON으로 간주(안전 기본값).</li>
+     *     <li>SOS와 달리 메시지 톤은 차분하게. 즉시 위험은 아니지만 패턴 형성 알림이라
+     *         "어머님이 X를 N일 연속 안 드셨어요" 식으로 사실 전달.</li>
+     *     <li>FCM data payload에 scheduleId 포함 — 보호자 앱이 알림 탭 시
+     *         해당 어머니의 복약 화면으로 라우팅 가능하도록.</li>
+     * </ul>
+     *
+     * @param wardId             해당 피보호자
+     * @param wardName           알림 본문에 들어갈 이름
+     * @param scheduleId         미복용 스케줄
+     * @param medicationName     약 이름 (본문에 표시)
+     * @param consecutiveCount   연속 누락 횟수 (현재는 항상 2 이상)
+     */
+    @Transactional
+    public void notifyMedicationMissed(
+            Long wardId,
+            String wardName,
+            Long scheduleId,
+            String medicationName,
+            int consecutiveCount
+    ) {
+        String title = "약 미복용 알림";
+        String body = String.format(
+                "%s님이 %s을(를) %d일 연속 드시지 않았어요.",
+                wardName, medicationName, consecutiveCount
+        );
+
+        List<GuardianWard> links = guardianWardRepository
+                .findByWardIdAndStatus(wardId, GuardianWardStatus.ACCEPTED);
+
+        if (links.isEmpty()) {
+            log.warn("[NOTIFY-MED-MISS-SKIP] ward {} has no accepted guardians.", wardId);
+            return;
+        }
+
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "MEDICATION_MISSED");
+        dataPayload.put("wardId", String.valueOf(wardId));
+        dataPayload.put("scheduleId", String.valueOf(scheduleId));
+
+        LocalDateTime now = LocalDateTime.now();
+        int sent = 0;
+        for (GuardianWard link : links) {
+            Long guardianId = link.getGuardianId();
+
+            // 즉시 알림 받기 설정이 OFF인 보호자는 건너뜀 (설정 없으면 default ON)
+            if (!isImmediateMedicationAlertEnabled(guardianId)) {
+                log.info("[NOTIFY-MED-MISS-OPTOUT] guardianId={}, wardId={} — immediate alert OFF",
+                        guardianId, wardId);
+                continue;
+            }
+
+            User guardian = userRepository.findById(guardianId).orElse(null);
+            if (guardian == null) continue;
+
+            NotificationHistory history = NotificationHistory.builder()
+                    .recipientId(guardian.getId())
+                    .wardId(wardId)
+                    .type(NotificationType.MEDICATION_MISSED)
+                    .title(title)
+                    .body(body)
+                    .relatedZoneId(null)
+                    .build();
+            history = historyRepository.save(history);
+
+            boolean fcmOk = fcmSender.send(guardian.getFcmToken(), title, body, dataPayload);
+            history.markFcmSent(fcmOk, now);
+            sent++;
+
+            log.info("[NOTIFY-MED-MISS] historyId={}, guardianId={}, scheduleId={}, fcmOk={}",
+                    history.getId(), guardian.getId(), scheduleId, fcmOk);
+        }
+
+        log.info("[NOTIFY-MED-MISS-DONE] wardId={}, scheduleId={}, sent={}", wardId, scheduleId, sent);
+    }
+
+    /**
+     * 매일 저녁 미복용 요약(다이제스트) 알림.
+     * <p>
+     * <b>호출 시점</b>: MedicationDigestService가 보호자별로 1분 배치에서 호출.
+     * <p>
+     * <b>특징</b>
+     * <ul>
+     *     <li>수신자 = 특정 보호자 1명 (broadcast 아님). 보호자가 어머니 여러 명 관리 시
+     *         MedicationDigestService가 어머니별로 이 메서드를 N번 호출.</li>
+     *     <li>설정 토글(daily_digest_enabled) 체크는 이미 배치 쿼리에서 필터링됨 — 여기선 재확인 X</li>
+     *     <li>FCM data payload에 wardId 포함 — 보호자 앱이 알림 탭 시
+     *         해당 어머니의 복약 화면으로 라우팅 가능하도록.</li>
+     * </ul>
+     *
+     * @param guardianId          수신할 보호자
+     * @param wardId              요약 대상 어머니
+     * @param wardName            본문에 들어갈 어머니 이름
+     * @param missCount           오늘 미복용 총 건수
+     * @param medicationSummary   약 이름 요약 문자열 (예: "혈압약", "혈압약 외 2건")
+     */
+    @Transactional
+    public void notifyMedicationDigest(
+            Long guardianId,
+            Long wardId,
+            String wardName,
+            int missCount,
+            String medicationSummary
+    ) {
+        User guardian = userRepository.findById(guardianId).orElse(null);
+        if (guardian == null) {
+            log.warn("[NOTIFY-MED-DIGEST-SKIP] guardian {} not found", guardianId);
+            return;
+        }
+
+        String title = "오늘의 약 복용 요약";
+        String body = String.format(
+                "%s님의 오늘 미복용: %s (총 %d건)",
+                wardName, medicationSummary, missCount
+        );
+
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "MEDICATION_DIGEST");
+        dataPayload.put("wardId", String.valueOf(wardId));
+
+        NotificationHistory history = NotificationHistory.builder()
+                .recipientId(guardianId)
+                .wardId(wardId)
+                .type(NotificationType.MEDICATION_DIGEST)
+                .title(title)
+                .body(body)
+                .relatedZoneId(null)
+                .build();
+        history = historyRepository.save(history);
+
+        boolean fcmOk = fcmSender.send(guardian.getFcmToken(), title, body, dataPayload);
+        history.markFcmSent(fcmOk, LocalDateTime.now());
+
+        log.info("[NOTIFY-MED-DIGEST] historyId={}, guardianId={}, wardId={}, missCount={}, fcmOk={}",
+                history.getId(), guardianId, wardId, missCount, fcmOk);
+    }
+
+    /**
+     * 보호자의 "즉시 약 알림 받기" 설정 조회.
+     * 설정 행이 없으면 default true (안전 기본값).
+     */
+    private boolean isImmediateMedicationAlertEnabled(Long guardianId) {
+        return preferenceRepository.findByGuardianId(guardianId)
+                .map(GuardianNotificationPreference::isImmediateMedicationAlert)
+                .orElse(true);
     }
     // ============================================================
     // 공통 발행 로직

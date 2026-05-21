@@ -113,3 +113,11 @@ oncare:
   security:
     crypto:
       enabled: ${ONCARE_SECURITY_CRYPTO_ENABLED:false}
+
+# ===========================
+# Graph RAG (복약 안전 분석 - 이정현 NestJS 서버)
+# ===========================
+graphrag:
+  base-url: ${GRAPHRAG_BASE_URL:http://localhost:3000}
+  timeout-seconds: 120
+  enabled: ${GRAPHRAG_ENABLED:true}

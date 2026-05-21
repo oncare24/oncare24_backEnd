@@ -52,7 +52,7 @@ public class MedicationSourceQueryService {
         byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
         Map<Long, ScheduleEvent> latestByScheduleId = new LinkedHashMap<>();
         encryptedActivityLogRepository
-                .findByWardIdAndEventTypeAndSourceTableOrderByOccurredAtAsc(
+                .findByWardIdAndEventTypeAndSourceTableOrderByIdAsc(
                         wardId,
                         ActivityEventType.MEDICATION_EVENT,
                         SOURCE_TABLE_SCHEDULE
@@ -61,7 +61,6 @@ public class MedicationSourceQueryService {
                 .map(log -> decryptScheduleEvent(log, wardPrivateKey))
                 .filter(event -> event.payload().scheduleId() != null)
                 .forEach(event -> latestByScheduleId.put(event.payload().scheduleId(), event));
-
         return latestByScheduleId.values()
                 .stream()
                 .filter(event -> includeInactive || isActiveSchedule(event.payload()))

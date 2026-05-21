@@ -19,7 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.oncare.oncare24.notification.service.NotificationPreferenceProvisionService;
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -32,26 +32,39 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final MlKemKeyProvisionService mlKemKeyProvisionService;
     private final InactivityRuleProvisionService inactivityRuleProvisionService;
-
+    private final NotificationPreferenceProvisionService notificationPreferenceProvisionService;
     /**
      * 회원가입.
      * 전화번호 중복 검사 → 비밀번호 BCrypt 해싱 → 저장.
      */
+    // back/src/main/java/com/oncare/oncare24/auth/service/AuthService.java  (signUp 메서드만 교체)
     @Transactional
     public SignUpResponse signUp(SignUpRequest request) {
         if (userRepository.existsByPhone(request.phone())) {
             throw new CustomException(ErrorCode.DUPLICATE_PHONE);
         }
+        // ELDER 는 age / isPregnant 필수 (Graph RAG ELDERLY · PREGNANCY 판정에 항상 전송)
+        if (request.role() == UserRole.ELDER
+                && (request.age() == null || request.isPregnant() == null)) {
+            throw new CustomException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+
+
         User user = User.builder()
                 .phone(request.phone())
                 .password(passwordEncoder.encode(request.password()))
                 .name(request.name())
                 .role(request.role())
+                .age(request.age())
+                .isPregnant(request.isPregnant())
                 .build();
         User saved = userRepository.save(user);
         mlKemKeyProvisionService.provisionUserMlKemKey(saved.getId());
         if (saved.getRole() == UserRole.ELDER) {
             inactivityRuleProvisionService.provisionDefaultRule(saved.getId());
+        }
+        if (saved.getRole() == UserRole.GUARDIAN) {
+            notificationPreferenceProvisionService.provisionDefault(saved.getId());
         }
         log.info("[SignUp] userId={}, phone={}, role={}", saved.getId(), saved.getPhone(), saved.getRole());
         return SignUpResponse.from(saved);

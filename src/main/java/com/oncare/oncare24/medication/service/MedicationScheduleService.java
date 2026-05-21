@@ -30,7 +30,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-
+import com.oncare.oncare24.medication.dto.MedicationScheduleSourceResponse;
+import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class MedicationScheduleService {
@@ -40,6 +41,7 @@ public class MedicationScheduleService {
     private final UserRepository userRepository;
     private final EncryptedSourceEventService encryptedSourceEventService;
     private final ApplicationEventPublisher eventPublisher;
+    private final MedicationSourceQueryService sourceQueryService;  // ← 추가
 
     @Transactional
     public MedicationScheduleResponse create(Long currentUserId, CreateMedicationScheduleRequest request) {
@@ -103,34 +105,95 @@ public class MedicationScheduleService {
             Long scheduleId,
             UpdateMedicationScheduleRequest request
     ) {
-        validateScheduleType(request.scheduleType(), request.dayOfWeek());
         validateAllowanceMinutes(request.allowedEarlyMinutes(), request.allowedDelayMinutes());
 
-        MedicationSchedule schedule = getScheduleOrThrow(scheduleId);
-        assertCanAccessWard(currentUserId, schedule.getWardId());
+        MedicationSchedule current = getScheduleOrThrow(scheduleId);
+        assertCanAccessWard(currentUserId, current.getWardId());
+        Long wardId = current.getWardId();
 
-        if (Boolean.TRUE.equals(request.active())) {
-            schedule.activate();
-        } else {
-            schedule.deactivate();
-        }
+        // 1) 현재 schedule이 속한 그룹 식별 (같은 ward + name + time + type, active만)
+        List<MedicationScheduleSourceResponse> allActive =
+                sourceQueryService.findMedicationSchedules(currentUserId, wardId, false);
 
-        MedicationSchedulePayload payload = schedulePayload(
-                "UPDATED",
-                schedule.getId(),
-                request.medicationName(),
-                request.scheduledTime(),
-                request.allowedEarlyMinutes(),
-                request.allowedDelayMinutes(),
+        MedicationScheduleSourceResponse currentSource = allActive.stream()
+                .filter(s -> Objects.equals(s.scheduleId(), scheduleId))
+                .findFirst()
+                .orElseThrow(() -> new CustomException(ErrorCode.MEDICATION_SCHEDULE_NOT_FOUND));
+
+        List<MedicationScheduleSourceResponse> groupSchedules = allActive.stream()
+                .filter(s ->
+                        Objects.equals(s.medicationName(), currentSource.medicationName())
+                                && Objects.equals(s.scheduledTime(), currentSource.scheduledTime())
+                                && s.scheduleType() == currentSource.scheduleType())
+                .toList();
+
+        // 2) 새 daysOfWeek 정규화 (CREATE 패턴 재사용)
+        List<DayOfWeek> targetDays = normalizeDaysOfWeek(
                 request.scheduleType(),
                 request.dayOfWeek(),
-                request.dayOfWeek() == null ? List.of() : List.of(request.dayOfWeek()),
-                schedule.isActive()
+                request.daysOfWeek()
         );
-        EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(schedule, payload);
-        schedule.linkEncryptedActivityLog(encryptedLog.getId());
-        eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(schedule.getWardId()));
-        return MedicationScheduleResponse.from(schedule, payload);
+
+        // 3) 기존 그룹 전체 deactivate
+        for (MedicationScheduleSourceResponse old : groupSchedules) {
+            MedicationSchedule oldEntity = getScheduleOrThrow(old.scheduleId());
+            oldEntity.deactivate();
+            MedicationSchedulePayload deactivatePayload = schedulePayload(
+                    "DEACTIVATED",
+                    oldEntity.getId(),
+                    null, null, null, null, null, null,
+                    List.of(),
+                    false
+            );
+            EncryptedActivityLog deactivateLog = saveEncryptedScheduleEvent(oldEntity, deactivatePayload);
+            oldEntity.linkEncryptedActivityLog(deactivateLog.getId());
+        }
+
+        // active=false 요청이면 새로 생성 안 함 (단순 비활성화)
+        if (!Boolean.TRUE.equals(request.active())) {
+            eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(wardId));
+            return MedicationScheduleResponse.from(current);
+        }
+
+        // 4) 새 그룹 생성 (요일 N개 → schedule N개)
+        List<MedicationSchedule> newSchedules = new ArrayList<>();
+        List<MedicationSchedulePayload> newPayloads = new ArrayList<>();
+        for (DayOfWeek dow : targetDays) {
+            MedicationSchedule saved = medicationScheduleRepository.save(
+                    MedicationSchedule.builder().wardId(wardId).build()
+            );
+            MedicationSchedulePayload payload = schedulePayload(
+                    "CREATED",
+                    saved.getId(),
+                    request.medicationName(),
+                    request.scheduledTime(),
+                    request.allowedEarlyMinutes(),
+                    request.allowedDelayMinutes(),
+                    request.scheduleType(),
+                    dow,
+                    dow == null ? List.of() : List.of(dow),
+                    true
+            );
+            EncryptedActivityLog log = saveEncryptedScheduleEvent(saved, payload);
+            saved.linkEncryptedActivityLog(log.getId());
+            newSchedules.add(saved);
+            newPayloads.add(payload);
+        }
+
+        eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(wardId));
+
+        // 5) 응답: 첫 번째 새 schedule + 모든 새 scheduleId들
+        List<Long> newIds = newSchedules.stream().map(MedicationSchedule::getId).toList();
+        List<DayOfWeek> responseDays = request.scheduleType() == MedicationScheduleType.DAILY
+                ? List.of()
+                : targetDays;
+
+        return MedicationScheduleResponse.from(
+                newSchedules.get(0),
+                newPayloads.get(0),
+                newIds,
+                responseDays
+        );
     }
 
     @Transactional
@@ -157,15 +220,15 @@ public class MedicationScheduleService {
     }
 
     private EncryptedActivityLog saveEncryptedScheduleEvent(MedicationSchedule schedule, MedicationSchedulePayload payload) {
-        LocalDateTime occurredAt = payload.scheduledTime() != null
-                ? LocalDateTime.of(LocalDate.now(), payload.scheduledTime())
-                : LocalDateTime.now();
+        // occurredAt은 "이 이벤트가 발생한 시각" — 약 복용 예정 시각이 아니라 지금 시각이어야 한다.
+        // payload.scheduledTime() 기준으로 잡으면 시간을 앞당기는 수정(오후→오전) 시 새 이벤트의
+        // occurredAt이 옛 이벤트보다 빨라져서 source query의 정렬에서 옛 값이 덮어쓰는 버그 발생.
         return encryptedSourceEventService.saveRequiredSourceEvent(
                 schedule.getWardId(),
                 ActivityEventType.MEDICATION_EVENT,
                 "medication_schedule",
                 schedule.getId(),
-                occurredAt,
+                LocalDateTime.now(),
                 payload
         );
     }

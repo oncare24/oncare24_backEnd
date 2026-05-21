@@ -61,4 +61,10 @@ public interface EncryptedActivityLogRepository extends JpaRepository<EncryptedA
               and log.dataKeyId is not null
             """)
     List<String> findDistinctDataKeyIdsByWardId(@Param("wardId") Long wardId);
+
+    List<EncryptedActivityLog> findByWardIdAndEventTypeAndSourceTableOrderByIdAsc(
+            Long wardId,
+            ActivityEventType eventType,
+            String sourceTable
+    );
 }

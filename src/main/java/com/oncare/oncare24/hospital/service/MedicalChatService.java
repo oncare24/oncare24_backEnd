@@ -36,8 +36,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class MedicalChatService {
 
-    /** 최대 user 발화 수. 이를 넘으면 강제 done=true (LLM 폭주 방지). */
-    private static final int MAX_USER_TURNS = 5;
+    /**
+     * 최대 user 발화 수. 이를 넘으면 강제 done=true (LLM 폭주 방지).
+     * 적응형 프롬프트에서는 후속 질문이 최대 2회이므로 보통 1~3턴 안에 끝남.
+     * 이 값은 LLM이 규칙을 무시하고 계속 질문할 때를 막는 안전장치.
+     */
+    private static final int MAX_USER_TURNS = 3;
 
     /** 응답에 포함할 최대 병원 개수. */
     private static final int MAX_HOSPITALS_IN_RESPONSE = 10;

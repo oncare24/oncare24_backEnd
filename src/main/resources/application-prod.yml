@@ -35,3 +35,8 @@ server:
     include-message: never
     include-binding-errors: never
     include-stacktrace: never
+
+graphrag:
+  base-url: ${GRAPHRAG_BASE_URL}
+  timeout-seconds: 120
+  enabled: ${GRAPHRAG_ENABLED:true}

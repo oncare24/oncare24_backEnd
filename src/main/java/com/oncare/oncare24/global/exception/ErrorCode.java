@@ -88,6 +88,14 @@ public enum ErrorCode {
     // === SOS 긴급 호출 (Step 12) ===
     SOS_THROTTLED(HttpStatus.TOO_MANY_REQUESTS, "R001", "방금 호출했어요. 잠시 후 다시 눌러주세요."),
     SOS_LOCATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "R002", "위치 정보가 없어 호출할 수 없어요. 위치 권한을 확인해주세요."),
+    // === 복약 안전 분석 (Drug Safety - Graph RAG) ===
+    DRUG_ANALYSIS_NOT_FOUND(HttpStatus.NOT_FOUND, "D001", "복약 안전 분석 결과가 없어요. 처방전 분석을 먼저 진행해 주세요."),
+    DRUG_ANALYSIS_CODEF_AUTH_FAILED(HttpStatus.BAD_GATEWAY, "D002", "처방전 인증 요청에 실패했어요. 잠시 후 다시 시도해 주세요."),
+    DRUG_ANALYSIS_CODEF_CONFIRM_FAILED(HttpStatus.BAD_GATEWAY, "D003", "처방전 조회에 실패했어요. 카카오톡 인증을 다시 시도해 주세요."),
+    DRUG_ANALYSIS_SERVER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "D004", "복약 분석 서버에 일시적으로 연결할 수 없어요."),
+    DRUG_ANALYSIS_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "D005", "복약 분석 서버 응답을 처리할 수 없어요."),
+    DRUG_ANALYSIS_ACCESS_DENIED(HttpStatus.FORBIDDEN, "D006", "이 분석 결과에 접근할 권한이 없어요."),
+
     // === 길안내 (V0xx) ===
     NAVIGATION_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "V001", "길안내 서비스에 일시적 문제가 발생했습니다."),
     NO_TRANSIT_ROUTE(HttpStatus.NOT_FOUND, "V002", "대중교통 경로를 찾을 수 없습니다. 거리가 너무 가까울 수 있어요.");

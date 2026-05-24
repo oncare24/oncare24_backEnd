@@ -3,7 +3,9 @@ package com.oncare.oncare24.inactivity.service;
 import com.oncare.oncare24.analysis.entity.ActivityEventType;
 import com.oncare.oncare24.analysis.entity.AnalysisType;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
+import com.oncare.oncare24.analysis.entity.WardAnalysisState;
 import com.oncare.oncare24.analysis.repository.EncryptedActivityLogRepository;
+import com.oncare.oncare24.analysis.repository.WardAnalysisStateRepository;
 import com.oncare.oncare24.analysis.service.AnalysisStateService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.global.exception.ErrorCode;
@@ -11,6 +13,7 @@ import com.oncare.oncare24.inactivity.dto.InactivityAnalysisResult;
 import com.oncare.oncare24.inactivity.entity.InactivityAnalysisStatus;
 import com.oncare.oncare24.inactivity.entity.InactivityDetectionRule;
 import com.oncare.oncare24.inactivity.repository.InactivityDetectionRuleRepository;
+import com.oncare.oncare24.notification.service.NotificationService;
 import com.oncare.oncare24.location.dto.DeviceStatusSourcePayload;
 import com.oncare.oncare24.location.dto.LocationSourcePayload;
 import com.oncare.oncare24.location.entity.DeviceState;
@@ -39,6 +42,12 @@ public class InactivityAnalysisService {
     private final MlKemKeyProvisionService mlKemKeyProvisionService;
     private final UserRepository userRepository;
     private final AnalysisStateService analysisStateService;
+    private final WardAnalysisStateRepository wardAnalysisStateRepository;
+    private final NotificationService notificationService;
+
+    // 분석 결과 상태코드 (WardAnalysisState.statusCode 규약과 동일)
+    private static final int STATUS_CODE_INACTIVE = 1;   // 활동 이상 감지
+    private static final int STATUS_CODE_NONE = -1;      // 분석 이력 없음 (전이 판정용 sentinel)
 
     @Transactional(readOnly = true)
     public InactivityAnalysisResult analyzeWardInactivity(Long wardId, LocalDateTime analysisAt) {
@@ -284,12 +293,27 @@ public class InactivityAnalysisService {
     }
 
     private void persistInactivityState(InactivityAnalysisResult result) {
+        int newStatusCode = inactivityStatusCode(result.status());
+
+        // upsert 전에 직전 상태코드를 읽어둔다 — 정상↔이상 "전이" 판정용.
+        int previousStatusCode = wardAnalysisStateRepository
+                .findByWardIdAndAnalysisType(result.wardId(), AnalysisType.INACTIVITY)
+                .map(WardAnalysisState::getStatusCode)
+                .orElse(STATUS_CODE_NONE);
+
         analysisStateService.upsertLatestState(
                 result.wardId(),
                 AnalysisType.INACTIVITY,
-                inactivityStatusCode(result.status()),
+                newStatusCode,
                 result.analysisAt()
         );
+
+        // 정상/위치불명/이력없음 → 이상(1) 으로 전이된 순간에만 1회 FCM 발송.
+        // 이상이 지속되는 동안 위치 이벤트마다 재분석돼도 재발송하지 않음 (알림 스팸 방지).
+        if (previousStatusCode != STATUS_CODE_INACTIVE && newStatusCode == STATUS_CODE_INACTIVE) {
+            boolean danger = result.status() == InactivityAnalysisStatus.INACTIVE_DANGER;
+            notificationService.notifyInactivityDetected(result.wardId(), danger);
+        }
     }
 
     private int inactivityStatusCode(InactivityAnalysisStatus status) {

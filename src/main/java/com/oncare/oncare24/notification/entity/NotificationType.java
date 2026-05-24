@@ -8,6 +8,7 @@ package com.oncare.oncare24.notification.entity;
  */
 public enum NotificationType {
     ZONE_EXIT,
+    ZONE_ENTER,        // 안심구역 복귀 (OUT → IN 전환)
     DEVICE_DISCONNECTED,
     WARD_INVITATION,
     SOS,

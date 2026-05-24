@@ -95,6 +95,15 @@ public class MedicationMissDetectionService {
 
             LocalDate scheduledDate = deadlineAt.toLocalDate();
 
+            // 등록 시각 이후 회차만 미복용 대상: 예정 시각이 스케줄 등록 시각보다 전이면
+            // (예: 밤에 등록한 아침 약) 오늘은 미복용으로 세지 않는다. 내일부터 정상 감지.
+            LocalDateTime doseAt = LocalDateTime.of(scheduledDate, schedule.getScheduledTime());
+            if (schedule.getCreatedAt() != null && doseAt.isBefore(schedule.getCreatedAt())) {
+                continue;
+            }
+
+
+
             // 이미 이번 날짜에 미복용으로 기록된 건은 건너뛴다 (2분 lookback 중복 방지)
             if (missRecordRepository.existsByScheduleIdAndScheduledDate(schedule.getId(), scheduledDate)) {
                 continue;

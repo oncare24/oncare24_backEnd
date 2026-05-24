@@ -57,13 +57,39 @@ public class NotificationService {
     /**
      * 안전구역 이탈 알림. INSIDE → OUTSIDE 전환 시 GeofencingService가 호출.
      */
+    /**
+     * 안심구역 이탈 알림. 모든 활성 안전구역을 합집합으로 본 "안심집합"이
+     * IN → OUT 으로 전환될 때 GeofencingService가 1회 호출.
+     * <p>
+     * data payload(type, wardId) 포함 — 보호자 앱이 알림 탭 시 해당 피보호자의
+     * 안전구역 화면으로 라우팅하기 위함.
+     */
     @Transactional
-    public void notifyZoneExit(Long wardId, Long zoneId, String wardName, String zoneName) {
+    public void notifyZoneExit(Long wardId, String wardName) {
         String title = "안전구역 이탈 알림";
-        String body = String.format("%s님이 %s에서 벗어났어요.", wardName, zoneName);
-        broadcastToGuardians(wardId, NotificationType.ZONE_EXIT, title, body, zoneId);
+        String body = String.format("%s님이 안심구역에서 벗어났어요.", wardName);
+
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "ZONE_EXIT");
+        dataPayload.put("wardId", String.valueOf(wardId));
+
+        broadcastToGuardians(wardId, NotificationType.ZONE_EXIT, title, body, null, dataPayload);
     }
 
+    /**
+     * 안심구역 복귀 알림. 안심집합이 OUT → IN 으로 전환될 때 GeofencingService가 1회 호출.
+     */
+    @Transactional
+    public void notifyZoneEnter(Long wardId, String wardName) {
+        String title = "안전구역 복귀 알림";
+        String body = String.format("%s님이 안심구역으로 돌아왔어요.", wardName);
+
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "ZONE_ENTER");
+        dataPayload.put("wardId", String.valueOf(wardId));
+
+        broadcastToGuardians(wardId, NotificationType.ZONE_ENTER, title, body, null, dataPayload);
+    }
     /**
      * 단말 미연결 알림. ACTIVE → DISCONNECTED 전환 시 DeviceStatusService가 호출.
      */
@@ -482,6 +508,21 @@ public class NotificationService {
             String body,
             Long relatedZoneId
     ) {
+        // data payload 없는 기존 호출 (DEVICE_DISCONNECTED 등) — 그대로 위임
+        broadcastToGuardians(wardId, type, title, body, relatedZoneId, null);
+    }
+
+    /**
+     * dataPayload 포함 버전. dataPayload가 null/빈 맵이면 알림만(data 없이) 발송 — 기존 동작 유지.
+     */
+    private void broadcastToGuardians(
+            Long wardId,
+            NotificationType type,
+            String title,
+            String body,
+            Long relatedZoneId,
+            java.util.Map<String, String> dataPayload
+    ) {
         List<GuardianWard> links = guardianWardRepository
                 .findByWardIdAndStatus(wardId, GuardianWardStatus.ACCEPTED);
 
@@ -489,6 +530,8 @@ public class NotificationService {
             log.warn("[NOTIFY-SKIP] ward {} has no accepted guardians. type={}", wardId, type);
             return;
         }
+
+        boolean hasData = dataPayload != null && !dataPayload.isEmpty();
 
         LocalDateTime now = LocalDateTime.now();
         for (GuardianWard link : links) {
@@ -505,7 +548,9 @@ public class NotificationService {
                     .build();
             history = historyRepository.save(history);
 
-            boolean fcmOk = fcmSender.send(guardian.getFcmToken(), title, body);
+            boolean fcmOk = hasData
+                    ? fcmSender.send(guardian.getFcmToken(), title, body, dataPayload)
+                    : fcmSender.send(guardian.getFcmToken(), title, body);
             history.markFcmSent(fcmOk, now);
         }
     }

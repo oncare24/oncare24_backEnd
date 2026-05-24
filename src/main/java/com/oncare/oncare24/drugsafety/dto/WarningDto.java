@@ -25,6 +25,7 @@ public class WarningDto {
     private String type;
     private String severity;
     private List<String> involvedIngredients;
+    private List<String> involvedDrugNames;   // ← 신규 (약 이름, 처방 resDrugName과 매칭)
     private String rawMessage;
     private String explanation;
 }

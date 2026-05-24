@@ -27,4 +27,5 @@ public class PrescriptionDto {
     private String resManufactureDate;      // 조제일자 YYYYMMDD  ← 추가
     private String resPrescribeNo;          // 처방전 교부번호    ← 추가
     private String resDrugCode;             // 약품코드          ← 추가
+    private String imageUrl;                // 약 이미지 URL (식약처, 없으면 null) ← 신규
 }

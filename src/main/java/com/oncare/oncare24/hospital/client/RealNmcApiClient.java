@@ -21,7 +21,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 /**
  * 국립중앙의료원 API 실제 호출 구현체 (병의원 검색).
  * <p>
@@ -61,24 +62,46 @@ public class RealNmcApiClient implements NmcApiClient {
     public List<HospitalInfo> searchHospitals(
             double latitude, double longitude, int radiusMeters, Department department) {
 
-        String sido = KoreanRegionMapper.resolve(latitude, longitude);
-        log.info("[NMC] hospitals search: ({}, {}) → sido={}, dept={}",
-                latitude, longitude, sido, department);
+        List<String> sidos = KoreanRegionMapper.resolveAll(latitude, longitude);
+        log.info("[NMC] hospitals search: ({}, {}) → sidos={}, dept={}",
+                latitude, longitude, sidos, department);
 
+        // 경계 지역은 좌표가 여러 시도에 동시에 걸침 → 모두 검색 후 병합.
+        // 매칭이 없으면 시도 제한 없이 1회 호출.
+        List<HospitalInfo> all = new ArrayList<>();
+        if (sidos.isEmpty()) {
+            all.addAll(callForSido(null));
+        } else {
+            for (String sido : sidos) {
+                all.addAll(callForSido(sido));
+            }
+        }
+
+        List<HospitalInfo> deduped = dedupeByHpid(all);
+        return filterByDistance(deduped, latitude, longitude, radiusMeters);
+    }
+
+    /** 시도 1곳(또는 제한 없음) NMC 호출. */
+    private List<HospitalInfo> callForSido(String sido) {
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(properties.hospitalBaseUrl() + "/getHsptlMdcncListInfoInqire")
                 .queryParam("serviceKey", properties.serviceKey())
                 .queryParam("numOfRows", NMC_PAGE_SIZE)
                 .queryParam("pageNo", 1);
-
         if (sido != null) {
             builder.queryParam("Q0", urlEncode(sido));
         }
-        // QD(진료과 코드) 일단 제거 - 매핑 검증 후 다시 활성화. 진료과 필터링은 DepartmentNameMatcher에서 처리.
-
         URI uri = builder.build(true).toUri();
-        List<HospitalInfo> all = callAndParse(uri);
-        return filterByDistance(all, latitude, longitude, radiusMeters);
+        return callAndParse(uri);
+    }
+
+    /** hpid 기준 중복 제거 (인접 시도 검색 시 동일 병원이 겹칠 수 있음). */
+    private List<HospitalInfo> dedupeByHpid(List<HospitalInfo> list) {
+        Map<String, HospitalInfo> byId = new LinkedHashMap<>();
+        for (HospitalInfo h : list) {
+            byId.putIfAbsent(h.hpid(), h);
+        }
+        return new ArrayList<>(byId.values());
     }
 
     private String urlEncode(String value) {

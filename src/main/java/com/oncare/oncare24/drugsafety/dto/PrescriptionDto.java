@@ -24,4 +24,7 @@ public class PrescriptionDto {
     private String resDailyDosesNumber;     // 1일 투여횟수
     private String resTotalDosingdays;      // 총 투약일수
     private String resPrescribeOrg;         // 처방기관
+    private String resManufactureDate;      // 조제일자 YYYYMMDD  ← 추가
+    private String resPrescribeNo;          // 처방전 교부번호    ← 추가
+    private String resDrugCode;             // 약품코드          ← 추가
 }

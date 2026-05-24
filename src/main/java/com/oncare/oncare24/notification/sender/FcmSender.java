@@ -39,4 +39,12 @@ public interface FcmSender {
     static Map<String, String> emptyData() {
         return Collections.emptyMap();
     }
+
+    /**
+     * data-only silent push 발송. 알림 표시 없이 백그라운드 동기화 트리거용.
+     * 기본 구현은 false (no-op). 실제 발송 구현체에서 override.
+     */
+    default boolean sendDataOnly(String fcmToken, Map<String, String> data) {
+        return false;
+    }
 }

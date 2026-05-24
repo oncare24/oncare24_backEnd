@@ -27,6 +27,9 @@ import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.repository.UserRepository;
 import com.oncare.oncare24.drugsafety.dto.PrescriptionDto;
 import com.oncare.oncare24.drugsafety.dto.GraphRagConfirmResponse;
+import com.oncare.oncare24.medication.dto.AutoRegisterResult;
+import com.oncare.oncare24.medication.dto.PrescriptionImportItem;
+
 /**
  * 복약 안전 분석 (Graph RAG) BFF 서비스.
  * <ul>
@@ -39,7 +42,7 @@ import com.oncare.oncare24.drugsafety.dto.GraphRagConfirmResponse;
 @Service
 @RequiredArgsConstructor
 public class DrugSafetyService {
-
+    private final com.oncare.oncare24.medication.service.MedicationScheduleService medicationScheduleService;
     private static final TypeReference<List<WarningDto>> WARNING_LIST_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<PrescriptionDto>> PRESCRIPTION_LIST_TYPE = new TypeReference<>() {};
     private final GraphRagClient graphRagClient;
@@ -109,6 +112,8 @@ public class DrugSafetyService {
         String prescriptionsJson = serializePrescriptions(prescriptions);
         LocalDateTime analyzedAt = LocalDateTime.now();
 
+
+
         analysisRepository.findByUserId(userId)
                 .ifPresentOrElse(
                         existing -> existing.overwrite(warningsJson, prescriptionsJson, analyzedAt),
@@ -122,15 +127,33 @@ public class DrugSafetyService {
                         )
                 );
 
+        List<PrescriptionImportItem> importItems = prescriptions.stream()
+                .map(p -> new PrescriptionImportItem(
+                        p.getResDrugName(),
+                        p.getResDailyDosesNumber(),
+                        p.getResTotalDosingdays(),
+                        p.getResManufactureDate(),
+                        p.getResPrescribeNo(),
+                        p.getResDrugCode()
+                ))
+                .toList();
+        AutoRegisterResult autoRegisterResult =
+                medicationScheduleService.autoRegisterFromPrescriptions(userId, importItems);
+
+
         log.info(
                 "[DrugSafety] analysis cached userId={} age={} pregnant={} warnings={} prescriptions={}",
                 userId, user.getAge(), user.getIsPregnant(), warnings.size(), prescriptions.size()
         );
 
+
+
+
         return MedicationAnalysisResponse.builder()
                 .warnings(warnings)
                 .prescriptions(prescriptions)
                 .analyzedAt(analyzedAt)
+                .autoRegisterResult(autoRegisterResult)   // ← 추가
                 .build();
     }
 

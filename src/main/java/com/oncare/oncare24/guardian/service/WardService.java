@@ -21,7 +21,7 @@ import com.oncare.oncare24.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import lombok.extern.slf4j.Slf4j;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -34,6 +34,7 @@ import java.util.Map;
  * 단일 책임: ACCEPTED 매칭을 가져와서 "보호자 홈에 한 카드로 그릴 수 있는 형태"로 가공.
  * Step 8 도메인(device_status, zone_visit_states, safety_zones) 모두 읽기만 함.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class WardService {
@@ -79,6 +80,27 @@ public class WardService {
                 .toList();
     }
 
+    @Transactional
+    public void unlinkWard(Long currentUserId, Long wardId) {
+        assertCurrentUserIsGuardian(currentUserId);
+
+        GuardianWard link = guardianWardRepository
+                .findByGuardianIdAndWardId(currentUserId, wardId)
+                .filter(GuardianWard::isAccepted)
+                .orElseThrow(() -> new CustomException(ErrorCode.NOT_LINKED_TO_WARD));
+
+        // 이 보호자가 그 피보호자에게 만든 안전구역도 같이 비활성화.
+        // 고아 zone이 지오펜싱에서 계속 평가되거나, 재연결 시 다른 보호자에게
+        // 노출되는 것 방지. (soft delete — 기존 안전구역 정책과 동일)
+        List<SafetyZone> zones = safetyZoneRepository
+                .findByWardIdAndGuardianIdAndActiveTrue(wardId, currentUserId);
+        zones.forEach(SafetyZone::softDelete);
+
+        guardianWardRepository.delete(link);
+        log.info("[Ward-Unlink] guardianId={}, wardId={}, deactivatedZones={}",
+                currentUserId, wardId, zones.size());
+    }
+
     // ============================================================
     // 상태 결정 로직 (위 결정 트리의 코드화)
     // ============================================================
@@ -103,7 +125,7 @@ public class WardService {
                 .findByWardIdAndActiveTrueOrderByCreatedAtAsc(wardId);
 
         if (zones.isEmpty()) {
-            return new StatusBundle(WardStatus.UNKNOWN, "안전구역 미설정", minutesAgo);
+            return new StatusBundle(WardStatus.ACTIVE, "안전구역 미설정", minutesAgo);
         }
 
         // zone_id별 visit state 한 번에 매핑
@@ -156,4 +178,6 @@ public class WardService {
     /** 상태 결정 결과를 묶어 옮기기 위한 내부 record. 외부로 노출 X. */
     private record StatusBundle(WardStatus status, String locationLabel, Long lastReportedMinutesAgo) {
     }
+
+
 }

@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-
+import java.time.LocalDate;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
@@ -44,12 +44,24 @@ public record UpdateMedicationScheduleRequest(
 
         @NotNull
         @Schema(description = "복약 일정 활성화 여부", example = "true")
-        Boolean active
+        Boolean active,
+
+        @Schema(description = "복용 시작일(기간 약). 계속 복용이면 null", example = "2026-05-18")
+        LocalDate startDate,
+
+        @Schema(description = "복용 종료일(기간 약). 계속 복용이면 null", example = "2026-05-22")
+        LocalDate endDate
+
 ) {
     @AssertTrue(message = "dayOfWeek or daysOfWeek is required for WEEKLY schedules.")
     public boolean isValidWeeklyDayOfWeek() {
         return scheduleType != MedicationScheduleType.WEEKLY
                 || dayOfWeek != null
                 || (daysOfWeek != null && !daysOfWeek.isEmpty());
+    }
+
+    @AssertTrue(message = "endDate must not be before startDate.")
+    public boolean isValidPeriod() {
+                return startDate == null || endDate == null || !endDate.isBefore(startDate);
     }
 }

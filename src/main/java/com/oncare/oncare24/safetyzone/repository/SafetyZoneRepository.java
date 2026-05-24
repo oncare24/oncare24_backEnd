@@ -22,4 +22,6 @@ public interface SafetyZoneRepository extends JpaRepository<SafetyZone, Long> {
 
     /** 5개 제한 검증용. 같은 wardId의 활성 zone 수. */
     long countByWardIdAndActiveTrue(Long wardId);
+    /** 특정 보호자가 특정 피보호자에게 만든 활성 안전구역. 연결 해제 시 일괄 비활성화용. */
+    List<SafetyZone> findByWardIdAndGuardianIdAndActiveTrue(Long wardId, Long guardianId);
 }

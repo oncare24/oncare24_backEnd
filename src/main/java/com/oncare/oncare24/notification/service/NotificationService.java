@@ -107,7 +107,10 @@ public class NotificationService {
                 .build();
         history = historyRepository.save(history);
 
-        boolean fcmOk = fcmSender.send(ward.getFcmToken(), title, body);
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "WARD_INVITATION");
+
+        boolean fcmOk = fcmSender.send(ward.getFcmToken(), title, body, dataPayload);
         history.markFcmSent(fcmOk, LocalDateTime.now());
     }
 

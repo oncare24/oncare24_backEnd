@@ -20,7 +20,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.ColumnDefault;
-
+import java.time.LocalDate;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 
@@ -30,7 +30,9 @@ import java.time.LocalTime;
         name = "medication_schedule",
         indexes = {
                 @Index(name = "idx_med_schedule_ward_active", columnList = "ward_id, is_active"),
-                @Index(name = "idx_med_schedule_ward_time", columnList = "ward_id, scheduled_time")
+                @Index(name = "idx_med_schedule_ward_time", columnList = "ward_id, scheduled_time"),
+                @Index(name = "idx_med_schedule_ward_codef", columnList = "ward_id, codef_key_bidx"),
+                @Index(name = "idx_med_schedule_active_end", columnList = "is_active, end_date")
         }
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -82,6 +84,12 @@ public class MedicationSchedule extends BaseTimeEntity {
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
+    @Column(name = "end_date")
+    private LocalDate endDate;                 // 자동등록 약 종료일(조제일+투약일수-1). 수동 등록은 null
+
+    @Column(name = "codef_key_bidx", length = 64)
+    private String codefKeyBidx;               // HMAC(처방번호_약품코드) 중복 방지용 블라인드 인덱스
+
     @Builder
     private MedicationSchedule(
             Long wardId,
@@ -91,7 +99,9 @@ public class MedicationSchedule extends BaseTimeEntity {
             Integer allowedEarlyMinutes,
             Integer allowedDelayMinutes,
             MedicationScheduleType scheduleType,
-            DayOfWeek dayOfWeek
+            DayOfWeek dayOfWeek,
+            LocalDate endDate,                 // ← 추가
+            String codefKeyBidx                // ← 추가
     ) {
         this.wardId = wardId;
         this.encryptedActivityLogId = encryptedActivityLogId;
@@ -101,6 +111,8 @@ public class MedicationSchedule extends BaseTimeEntity {
         this.allowedDelayMinutes = allowedDelayMinutes;
         this.scheduleType = scheduleType;
         this.dayOfWeek = dayOfWeek;
+        this.endDate = endDate;                // ← 추가
+        this.codefKeyBidx = codefKeyBidx;      // ← 추가
         this.active = true;
     }
 
@@ -110,6 +122,10 @@ public class MedicationSchedule extends BaseTimeEntity {
 
     public void activate() {
         this.active = true;
+    }
+
+    public void updateEndDate(java.time.LocalDate endDate) {
+        this.endDate = endDate;
     }
 
     public void linkEncryptedActivityLog(Long encryptedActivityLogId) {

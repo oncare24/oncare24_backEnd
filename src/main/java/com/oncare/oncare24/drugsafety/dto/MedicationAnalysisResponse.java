@@ -25,4 +25,6 @@ public class MedicationAnalysisResponse {
     private List<WarningDto> warnings;
     private List<PrescriptionDto> prescriptions;
     private LocalDateTime analyzedAt;
+    private com.oncare.oncare24.medication.dto.AutoRegisterResult autoRegisterResult;   // ← 추가
+
 }

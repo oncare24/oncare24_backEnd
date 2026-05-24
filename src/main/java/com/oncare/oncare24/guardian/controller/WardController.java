@@ -12,7 +12,10 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import java.util.List;
 
 /**
@@ -40,5 +43,18 @@ public class WardController {
             @AuthenticationPrincipal CustomUserDetails userDetails
     ) {
         return ApiResponse.success(wardService.findMyWards(userDetails.getUserId()));
+    }
+
+    @DeleteMapping("/{wardId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(
+            summary = "피보호자 연결 해제",
+            description = "GUARDIAN만 호출 가능. 본인과 ACCEPTED 매칭된 피보호자와의 연결을 끊는다. 매칭이 없으면 G001."
+    )
+    public void unlinkWard(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @PathVariable Long wardId
+    ) {
+        wardService.unlinkWard(userDetails.getUserId(), wardId);
     }
 }

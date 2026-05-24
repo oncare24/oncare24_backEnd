@@ -4,12 +4,16 @@ import com.oncare.oncare24.medication.entity.MedicationSchedule;
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-
+import java.time.LocalDate;
 import java.time.DayOfWeek;
 import java.util.List;
 import java.util.Optional;
 
 public interface MedicationScheduleRepository extends JpaRepository<MedicationSchedule, Long> {
+
+    boolean existsByWardIdAndCodefKeyBidx(Long wardId, String codefKeyBidx);
+
+    List<MedicationSchedule> findByActiveTrueAndEndDateBefore(LocalDate date);
 
     Optional<MedicationSchedule> findByIdAndActiveTrue(Long id);
 

@@ -157,7 +157,9 @@ public class MedicationSourceQueryService {
                 payload.dayOfWeek(),
                 normalizeDays(payload),
                 payload.active(),
-                event.occurredAt()
+                event.occurredAt(),
+                payload.startDate(),   // 추가
+                payload.endDate()      // 추가
         );
     }
 

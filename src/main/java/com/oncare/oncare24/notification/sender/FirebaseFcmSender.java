@@ -12,7 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.google.firebase.messaging.AndroidConfig;
 import java.util.Map;
 
 /**
@@ -90,5 +90,40 @@ public class FirebaseFcmSender implements FcmSender {
     protected void invalidateToken(String fcmToken) {
         int updated = userRepository.clearFcmToken(fcmToken);
         log.info("[FCM-INVALIDATE] cleared {} user(s) with stale token", updated);
+    }
+
+    @Override
+    public boolean sendDataOnly(String fcmToken, Map<String, String> data) {
+        if (fcmToken == null || fcmToken.isBlank()) {
+            log.warn("[FCM-SKIP-DATA] no token.");
+            return false;
+        }
+
+        Message message = Message.builder()
+                .setToken(fcmToken)
+                .putAllData(data == null ? java.util.Map.of() : data)
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .build())
+                .build();
+
+        try {
+            String messageId = firebaseMessaging.send(message);
+            log.info("[FCM-SEND-DATA] success. messageId={}, dataKeys={}",
+                    messageId, data == null ? 0 : data.size());
+            return true;
+        } catch (FirebaseMessagingException e) {
+            MessagingErrorCode errorCode = e.getMessagingErrorCode();
+            log.warn("[FCM-SEND-DATA] failed. errorCode={}, message={}",
+                    errorCode, e.getMessage());
+            if (errorCode == MessagingErrorCode.UNREGISTERED
+                    || errorCode == MessagingErrorCode.INVALID_ARGUMENT) {
+                invalidateToken(fcmToken);
+            }
+            return false;
+        } catch (Exception e) {
+            log.error("[FCM-SEND-DATA] unexpected error: {}", e.getMessage());
+            return false;
+        }
     }
 }

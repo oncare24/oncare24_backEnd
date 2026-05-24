@@ -35,4 +35,16 @@ public class LogOnlyFcmSender implements FcmSender {
                 data == null ? "{}" : data);
         return true;
     }
+
+    @Override
+    public boolean sendDataOnly(String fcmToken, Map<String, String> data) {
+        if (fcmToken == null || fcmToken.isBlank()) {
+            log.warn("[FCM-SKIP-DATA] no token");
+            return false;
+        }
+        log.info("[FCM-SEND-DATA] token={}..., data={}",
+                fcmToken.substring(0, Math.min(8, fcmToken.length())),
+                data == null ? "{}" : data);
+        return true;
+    }
 }

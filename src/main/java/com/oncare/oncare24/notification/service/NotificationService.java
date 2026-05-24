@@ -75,6 +75,79 @@ public class NotificationService {
     }
 
     /**
+     * 활동 이상(미활동) 감지 알림.
+     * <p>
+     * <b>호출 시점</b>: InactivityAnalysisService가 분석 상태코드를 0/2/이력없음 → 1(INACTIVE)
+     * 로 "전이"시킨 순간에만 호출 (edge-trigger). 이상이 지속되는 동안에는 호출되지 않음 —
+     * 매 위치 이벤트마다 재발송되는 스팸 방지는 호출 측 책임.
+     * <p>
+     * <b>broadcastToGuardians 대신 별도 메서드인 이유</b>: 보호자 앱이 알림 탭 시 해당
+     * 피보호자 상세 화면으로 라우팅하도록 data payload(wardId)를 함께 보내기 위함.
+     * <p>
+     * <b>설계</b>
+     * <ul>
+     *     <li>ZONE_EXIT/SOS와 같은 안전 알림이라 보호자 알림 설정 opt-out 검사 없음.</li>
+     *     <li>REQUIRES_NEW — 호출 측(InactivityAnalysisService.analyzeWardInactivity)이
+     *         readOnly 트랜잭션이라, 항상 독립적인 쓰기 트랜잭션을 보장.</li>
+     * </ul>
+     *
+     * @param wardId 활동 이상이 감지된 피보호자
+     * @param danger true=INACTIVE_DANGER(위험 임계 초과), false=INACTIVE_WARNING(경고 임계)
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void notifyInactivityDetected(Long wardId, boolean danger) {
+        User ward = userRepository.findById(wardId).orElse(null);
+        if (ward == null) {
+            log.warn("[NOTIFY-INACTIVITY-SKIP] ward {} not found", wardId);
+            return;
+        }
+        String wardName = ward.getName();
+
+        String title = danger ? "활동 없음 감지 (위험)" : "활동 없음 감지";
+        String body = danger
+                ? String.format("%s님이 장시간 움직임이 없어요. 바로 확인해 주세요.", wardName)
+                : String.format("%s님이 장시간 활동이 감지되지 않고 있어요.", wardName);
+
+        List<GuardianWard> links = guardianWardRepository
+                .findByWardIdAndStatus(wardId, GuardianWardStatus.ACCEPTED);
+
+        if (links.isEmpty()) {
+            log.warn("[NOTIFY-INACTIVITY-SKIP] ward {} has no accepted guardians.", wardId);
+            return;
+        }
+
+        java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
+        dataPayload.put("type", "INACTIVITY_WARNING");
+        dataPayload.put("wardId", String.valueOf(wardId));
+
+        LocalDateTime now = LocalDateTime.now();
+        int sent = 0;
+        for (GuardianWard link : links) {
+            User guardian = userRepository.findById(link.getGuardianId()).orElse(null);
+            if (guardian == null) continue;
+
+            NotificationHistory history = NotificationHistory.builder()
+                    .recipientId(guardian.getId())
+                    .wardId(wardId)
+                    .type(NotificationType.INACTIVITY_WARNING)
+                    .title(title)
+                    .body(body)
+                    .relatedZoneId(null)
+                    .build();
+            history = historyRepository.save(history);
+
+            boolean fcmOk = fcmSender.send(guardian.getFcmToken(), title, body, dataPayload);
+            history.markFcmSent(fcmOk, now);
+            sent++;
+
+            log.info("[NOTIFY-INACTIVITY] historyId={}, guardianId={}, danger={}, fcmOk={}",
+                    history.getId(), guardian.getId(), danger, fcmOk);
+        }
+
+        log.info("[NOTIFY-INACTIVITY-DONE] wardId={}, danger={}, sent={}", wardId, danger, sent);
+    }
+
+    /**
      * 보호자→피보호자 초대 알림.
      * <p>
      * <b>호출 시점</b>: InvitationService.create()에서 초대가 PENDING으로 발행되거나 reInvite된 직후.

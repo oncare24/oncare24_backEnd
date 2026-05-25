@@ -39,6 +39,7 @@ public class MedicationLogService {
     private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
+    // 복약 기록 생성과 암호화 이벤트 저장
     public MedicationLogResponse create(Long currentUserId, CreateMedicationLogRequest request) {
         User currentUser = assertCanAccessWard(currentUserId, request.wardId());
 
@@ -75,6 +76,7 @@ public class MedicationLogService {
                 null,
                 null
         );
+        // 복약 기록 원천 데이터를 암호화 이벤트로 저장
         EncryptedActivityLog encryptedLog = encryptedSourceEventService.saveRequiredSourceEvent(
                 saved.getWardId(),
                 ActivityEventType.MEDICATION_EVENT,

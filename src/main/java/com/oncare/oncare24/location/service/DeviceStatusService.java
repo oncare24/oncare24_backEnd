@@ -59,6 +59,7 @@ public class DeviceStatusService {
      */
     @Scheduled(fixedDelay = BATCH_INTERVAL_MS, initialDelay = BATCH_INTERVAL_MS)
     @Transactional
+    // 기기 연결 끊김 감지와 암호화 저장
     public void detectDisconnectedDevices() {
         LocalDateTime threshold = LocalDateTime.now().minusMinutes(DISCONNECT_THRESHOLD_MINUTES);
 
@@ -74,6 +75,7 @@ public class DeviceStatusService {
         for (DeviceStatus device : candidates) {
             LocalDateTime disconnectedAt = LocalDateTime.now();
             device.markDisconnected();
+            // 기기 연결 끊김 상태를 암호화 이벤트로 저장
             encryptedSourceEventService.saveRequiredSourceEvent(
                     device.getUserId(),
                     ActivityEventType.DEVICE_EVENT,
@@ -98,6 +100,7 @@ public class DeviceStatusService {
         }
     }
 
+    // 기기 상태 암호화 payload 생성
     private DeviceStatusSourcePayload deviceStatusPayload(DeviceStatus device, LocalDateTime reportedAt) {
         return new DeviceStatusSourcePayload(
                 device.getUserId(),

@@ -42,6 +42,7 @@ public class MedicationSourceQueryService {
     private final GuardianWardRepository guardianWardRepository;
 
     @Transactional(readOnly = true)
+    // 암호화된 복약 일정 원천 조회
     public List<MedicationScheduleSourceResponse> findMedicationSchedules(
             Long currentUserId,
             Long wardId,
@@ -49,6 +50,7 @@ public class MedicationSourceQueryService {
     ) {
         assertCanAccessWard(currentUserId, wardId);
 
+        // ward 개인키로 복약 일정 암호화 원천 데이터 복호화 준비
         byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
         Map<Long, ScheduleEvent> latestByScheduleId = new LinkedHashMap<>();
         encryptedActivityLogRepository
@@ -58,6 +60,7 @@ public class MedicationSourceQueryService {
                         SOURCE_TABLE_SCHEDULE
                 )
                 .stream()
+                // encrypted_activity_log의 복약 일정 이벤트를 복호화
                 .map(log -> decryptScheduleEvent(log, wardPrivateKey))
                 .filter(event -> event.payload().scheduleId() != null)
                 .forEach(event -> latestByScheduleId.put(event.payload().scheduleId(), event));
@@ -78,6 +81,7 @@ public class MedicationSourceQueryService {
     }
 
     @Transactional(readOnly = true)
+    // 암호화된 복약 기록 원천 조회
     public List<MedicationLogSourceResponse> findMedicationLogs(
             Long currentUserId,
             Long wardId,
@@ -85,6 +89,7 @@ public class MedicationSourceQueryService {
     ) {
         assertCanAccessWard(currentUserId, wardId);
 
+        // ward 개인키로 복약 기록 암호화 원천 데이터 복호화 준비
         byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
         List<EncryptedActivityLog> logs = date == null
                 ? encryptedActivityLogRepository.findByWardIdAndEventTypeAndSourceTableOrderByOccurredAtAsc(
@@ -101,6 +106,7 @@ public class MedicationSourceQueryService {
         );
 
         return logs.stream()
+                // encrypted_activity_log의 복약 기록 이벤트를 복호화
                 .map(log -> decryptActivityPayload(log, wardPrivateKey, MedicationLogPayload.class))
                 .map(this::toLogResponse)
                 .sorted(Comparator
@@ -119,12 +125,16 @@ public class MedicationSourceQueryService {
         return response.scheduledAt() != null ? response.scheduledAt() : response.takenAt();
     }
 
+    // 복약 일정 암호화 이벤트 복호화
     private ScheduleEvent decryptScheduleEvent(EncryptedActivityLog log, byte[] wardPrivateKey) {
+        // 암호화된 복약 일정 payload 복호화
         MedicationSchedulePayload payload = decryptActivityPayload(log, wardPrivateKey, MedicationSchedulePayload.class);
         return new ScheduleEvent(payload, log.getOccurredAt());
     }
 
+    // 복약 원천 payload 공통 복호화
     private <T> T decryptActivityPayload(EncryptedActivityLog log, byte[] wardPrivateKey, Class<T> payloadType) {
+        // encrypted_activity_log payload를 CommonCryptoService로 복호화
         return commonCryptoService.decryptActivityLogPayload(
                 log.getDataKeyId(),
                 log.getEncryptedPackage(),
@@ -145,6 +155,7 @@ public class MedicationSourceQueryService {
                 && ("DEACTIVATE".equalsIgnoreCase(action) || "DEACTIVATED".equalsIgnoreCase(action));
     }
 
+    // 복호화된 복약 일정 응답 변환
     private MedicationScheduleSourceResponse toScheduleResponse(ScheduleEvent event) {
         MedicationSchedulePayload payload = event.payload();
         return new MedicationScheduleSourceResponse(
@@ -170,6 +181,7 @@ public class MedicationSourceQueryService {
         return payload.dayOfWeek() == null ? List.of() : List.of(payload.dayOfWeek());
     }
 
+    // 복호화된 복약 기록 응답 변환
     private MedicationLogSourceResponse toLogResponse(MedicationLogPayload payload) {
         return new MedicationLogSourceResponse(
                 payload.scheduleId(),

@@ -37,6 +37,7 @@ public class LocationSourceQueryService {
     private final GuardianWardRepository guardianWardRepository;
 
     @Transactional(readOnly = true)
+    // 암호화된 위치 보고 원천 조회
     public List<LocationSourceResponse> findLocationRecords(
             Long currentUserId,
             Long wardId,
@@ -45,6 +46,7 @@ public class LocationSourceQueryService {
     ) {
         assertCanAccessWard(currentUserId, wardId);
         TimeRange range = resolveRange(from, to);
+        // ward 개인키로 위치 보고 암호화 원천 데이터 복호화 준비
         byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
 
         return encryptedActivityLogRepository
@@ -55,6 +57,7 @@ public class LocationSourceQueryService {
                         range.to()
                 )
                 .stream()
+                // encrypted_activity_log의 위치 보고 이벤트를 복호화
                 .map(log -> decryptLocationRecord(log, wardPrivateKey))
                 .sorted(Comparator
                         .comparing(
@@ -66,6 +69,7 @@ public class LocationSourceQueryService {
     }
 
     @Transactional(readOnly = true)
+    // 암호화된 기기 상태 원천 조회
     public List<DeviceStatusSourceResponse> findDeviceStatusRecords(
             Long currentUserId,
             Long wardId,
@@ -74,6 +78,7 @@ public class LocationSourceQueryService {
     ) {
         assertCanAccessWard(currentUserId, wardId);
         TimeRange range = resolveRange(from, to);
+        // ward 개인키로 기기 상태 암호화 원천 데이터 복호화 준비
         byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
 
         return encryptedActivityLogRepository
@@ -84,6 +89,7 @@ public class LocationSourceQueryService {
                         range.to()
                 )
                 .stream()
+                // encrypted_activity_log의 기기 상태 이벤트를 복호화
                 .map(log -> decryptDeviceStatusRecord(log, wardPrivateKey))
                 .sorted(Comparator
                         .comparing(
@@ -94,7 +100,9 @@ public class LocationSourceQueryService {
                 .toList();
     }
 
+    // 위치 보고 암호화 이벤트 복호화
     private LocationRecord decryptLocationRecord(EncryptedActivityLog log, byte[] wardPrivateKey) {
+        // 암호화된 위치 보고 payload 복호화
         LocationSourcePayload payload = decryptActivityPayload(log, wardPrivateKey, LocationSourcePayload.class);
         LocalDateTime reportedAt = payload.reportedAt() != null ? payload.reportedAt() : log.getOccurredAt();
         return new LocationRecord(
@@ -109,7 +117,9 @@ public class LocationSourceQueryService {
         );
     }
 
+    // 기기 상태 암호화 이벤트 복호화
     private DeviceStatusRecord decryptDeviceStatusRecord(EncryptedActivityLog log, byte[] wardPrivateKey) {
+        // 암호화된 기기 상태 payload 복호화
         DeviceStatusSourcePayload payload = decryptActivityPayload(log, wardPrivateKey, DeviceStatusSourcePayload.class);
         LocalDateTime reportedAt = payload.reportedAt() != null ? payload.reportedAt() : log.getOccurredAt();
         return new DeviceStatusRecord(
@@ -123,7 +133,9 @@ public class LocationSourceQueryService {
         );
     }
 
+    // 위치 기기 원천 payload 공통 복호화
     private <T> T decryptActivityPayload(EncryptedActivityLog log, byte[] wardPrivateKey, Class<T> payloadType) {
+        // encrypted_activity_log payload를 CommonCryptoService로 복호화
         return commonCryptoService.decryptActivityLogPayload(
                 log.getDataKeyId(),
                 log.getEncryptedPackage(),

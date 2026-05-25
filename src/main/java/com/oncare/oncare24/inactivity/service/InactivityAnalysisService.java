@@ -50,6 +50,7 @@ public class InactivityAnalysisService {
     private static final int STATUS_CODE_NONE = -1;      // 분석 이력 없음 (전이 판정용 sentinel)
 
     @Transactional(readOnly = true)
+    // 단일 ward 미활동 분석 진입점
     public InactivityAnalysisResult analyzeWardInactivity(Long wardId, LocalDateTime analysisAt) {
         assertWardIsElder(wardId);
 
@@ -62,6 +63,7 @@ public class InactivityAnalysisService {
     }
 
     @Transactional(readOnly = true)
+    // 전체 활성 ward 미활동 분석 진입점
     public List<InactivityAnalysisResult> analyzeAllActiveWardInactivity(LocalDateTime analysisAt) {
         List<InactivityAnalysisResult> results = inactivityDetectionRuleRepository.findByActiveTrueOrderByWardIdAsc()
                 .stream()
@@ -71,10 +73,13 @@ public class InactivityAnalysisService {
         return results;
     }
 
+    // 위치와 기기 상태 복호화 후 미활동 분석
     private InactivityAnalysisResult analyzeRule(InactivityDetectionRule rule, LocalDateTime analysisAt) {
         Long wardId = rule.getWardId();
+        // 분석 대상 ward 개인키로 위치와 기기 상태 원천 데이터 복호화 준비
         byte[] wardPrivateKey = mlKemKeyProvisionService.readPrivateKey(wardId);
 
+        // 최신 기기 상태 암호화 이벤트를 복호화해 분석 조건 확인
         Optional<DeviceStatusSourcePayload> deviceStatus = findLatestDeviceStatus(wardId, analysisAt, wardPrivateKey);
         if (deviceStatus.map(DeviceStatusSourcePayload::deviceStatus).filter(DeviceState.DISCONNECTED::equals).isPresent()) {
             return result(
@@ -91,6 +96,7 @@ public class InactivityAnalysisService {
             );
         }
 
+        // 최신 위치 보고 암호화 이벤트를 복호화해 stale 여부 판단
         Optional<DecryptedLocationReport> latestReport = findLatestLocationReport(wardId, analysisAt, wardPrivateKey);
         if (latestReport.isEmpty()) {
             return result(
@@ -139,6 +145,7 @@ public class InactivityAnalysisService {
         }
 
         LocalDateTime searchFrom = analysisAt.minusMinutes(resolveLookbackMinutes(rule));
+        // 분석 구간의 위치 보고 암호화 이벤트를 복호화해 활동성 계산
         List<DecryptedLocationReport> reports = findLocationReports(wardId, searchFrom, analysisAt, wardPrivateKey);
         List<DecryptedLocationReport> reliableReports = reports.stream()
                 .filter(report -> isReliableAccuracy(report, rule))
@@ -210,11 +217,13 @@ public class InactivityAnalysisService {
         return report.accuracy() != null && report.accuracy() <= rule.getMaxAccuracyMeters();
     }
 
+    // 최신 기기 상태 암호화 이벤트 조회
     private Optional<DeviceStatusSourcePayload> findLatestDeviceStatus(
             Long wardId,
             LocalDateTime analysisAt,
             byte[] wardPrivateKey
     ) {
+        // encrypted_activity_log에서 최신 기기 상태 이벤트 조회
         return encryptedActivityLogRepository
                 .findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
                         wardId,
@@ -225,11 +234,13 @@ public class InactivityAnalysisService {
                 .map(log -> decryptActivityPayload(log, wardPrivateKey, DeviceStatusSourcePayload.class));
     }
 
+    // 최신 위치 보고 암호화 이벤트 조회
     private Optional<DecryptedLocationReport> findLatestLocationReport(
             Long wardId,
             LocalDateTime analysisAt,
             byte[] wardPrivateKey
     ) {
+        // encrypted_activity_log에서 최신 위치 보고 이벤트 조회
         return encryptedActivityLogRepository
                 .findFirstByWardIdAndEventTypeAndSourceTableAndOccurredAtLessThanEqualOrderByOccurredAtDesc(
                         wardId,
@@ -240,6 +251,7 @@ public class InactivityAnalysisService {
                 .map(log -> decryptLocationReport(log, wardPrivateKey));
     }
 
+    // 분석 구간 위치 보고 암호화 이벤트 조회
     private List<DecryptedLocationReport> findLocationReports(
             Long wardId,
             LocalDateTime from,
@@ -259,7 +271,9 @@ public class InactivityAnalysisService {
                 .toList();
     }
 
+    // 위치 보고 암호화 이벤트 복호화
     private DecryptedLocationReport decryptLocationReport(EncryptedActivityLog log, byte[] wardPrivateKey) {
+        // 암호화된 위치 보고 payload 복호화
         LocationSourcePayload payload = decryptActivityPayload(log, wardPrivateKey, LocationSourcePayload.class);
         LocalDateTime reportedAt = payload.reportedAt() != null ? payload.reportedAt() : log.getOccurredAt();
         return new DecryptedLocationReport(
@@ -270,7 +284,9 @@ public class InactivityAnalysisService {
         );
     }
 
+    // 미활동 분석 원천 payload 복호화
     private <T> T decryptActivityPayload(EncryptedActivityLog log, byte[] wardPrivateKey, Class<T> payloadType) {
+        // 암호화된 활동 분석 원천 payload 복호화
         return commonCryptoService.decryptActivityLogPayload(
                 log.getDataKeyId(),
                 log.getEncryptedPackage(),

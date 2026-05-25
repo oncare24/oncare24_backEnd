@@ -59,6 +59,7 @@ public class LocationReportService {
     private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
+    // 위치 보고와 기기 상태 암호화 저장
     public LocationReportResponse report(Long currentUserId, LocationReportRequest req) {
         assertCurrentUserIsElder(currentUserId);
 
@@ -80,6 +81,7 @@ public class LocationReportService {
                 .reportSource(req.reportSource())
                 .build();
         LocationReport savedReport = locationReportRepository.save(report);
+        // 위치 보고 원천 데이터를 암호화 이벤트로 저장
         encryptedSourceEventService.saveRequiredSourceEvent(
                 currentUserId,
                 ActivityEventType.LOCATION_EVENT,
@@ -96,6 +98,7 @@ public class LocationReportService {
                         DeviceStatus.builder().userId(currentUserId).build()
                 ));
         device.onLocationReported(now);
+        // 기기 상태 원천 데이터를 암호화 이벤트로 저장
         encryptedSourceEventService.saveRequiredSourceEvent(
                 currentUserId,
                 ActivityEventType.DEVICE_EVENT,
@@ -112,6 +115,7 @@ public class LocationReportService {
         return LocationReportResponse.stored(savedReport.getId(), now);
     }
 
+    // 위치 보고 암호화 payload 생성
     private LocationSourcePayload locationReportPayload(LocationReport report, LocalDateTime reportedAt) {
         return new LocationSourcePayload(
                 report.getUserId(),
@@ -126,6 +130,7 @@ public class LocationReportService {
         );
     }
 
+    // 기기 상태 암호화 payload 생성
     private DeviceStatusSourcePayload deviceStatusPayload(DeviceStatus device, LocalDateTime reportedAt) {
         return new DeviceStatusSourcePayload(
                 device.getUserId(),

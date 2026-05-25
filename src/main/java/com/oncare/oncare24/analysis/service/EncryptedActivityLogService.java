@@ -18,6 +18,7 @@ public class EncryptedActivityLogService {
     private final EncryptedActivityLogRepository encryptedActivityLogRepository;
 
     @Transactional
+    // encrypted_activity_log 저장 진입점
     public EncryptedActivityLog saveEncryptedActivityLog(
             Long wardId,
             ActivityEventType eventType,
@@ -26,6 +27,7 @@ public class EncryptedActivityLogService {
             LocalDateTime occurredAt,
             EncryptedPayload encryptedPayload
     ) {
+        // 암호화 패키지와 AAD를 encrypted_activity_log 엔티티로 조립
         EncryptedActivityLog log = EncryptedActivityLog.builder()
                 .wardId(wardId)
                 .dataKeyId(encryptedPayload.dataKeyId())
@@ -36,6 +38,7 @@ public class EncryptedActivityLogService {
                 .encryptedPackage(encryptedPayload.encryptedPackage())
                 .aadJson(encryptedPayload.aadJson())
                 .build();
+        // encrypted_activity_log 테이블에 암호화 이벤트 저장
         return encryptedActivityLogRepository.save(log);
     }
 }

@@ -59,6 +59,7 @@ public class MedicationScheduleService {
     private final CodefKeyHasher codefKeyHasher;
 
     @Transactional
+    // 복약 일정 생성과 암호화 이벤트 저장
     public MedicationScheduleResponse create(Long currentUserId, CreateMedicationScheduleRequest request) {
         List<DayOfWeek> daysOfWeek = normalizeDaysOfWeek(request.scheduleType(), request.dayOfWeek(), request.daysOfWeek());
         validateAllowanceMinutes(request.allowedEarlyMinutes(), request.allowedDelayMinutes());
@@ -85,6 +86,7 @@ public class MedicationScheduleService {
                     request.startDate(),   // ← 추가
                     request.endDate()      // ← 추가
             );
+            // 복약 일정 원천 데이터를 암호화 이벤트로 저장
             EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(saved, payload);
             saved.linkEncryptedActivityLog(encryptedLog.getId());
             savedSchedules.add(saved);
@@ -119,6 +121,7 @@ public class MedicationScheduleService {
     }
 
     @Transactional
+    // 복약 일정 수정과 암호화 이벤트 저장
     public MedicationScheduleResponse update(
             Long currentUserId,
             Long scheduleId,
@@ -196,6 +199,7 @@ public class MedicationScheduleService {
                     request.endDate()      // ← 추가
             );
             target.activate();
+            // 수정된 복약 일정 원천 데이터를 암호화 이벤트로 저장
             EncryptedActivityLog logEvent = saveEncryptedScheduleEvent(target, payload);
             target.linkEncryptedActivityLog(logEvent.getId());
             resultSchedules.add(target);
@@ -220,6 +224,7 @@ public class MedicationScheduleService {
                 resultSchedules.get(0), resultPayloads.get(0), resultIds, responseDays);
     }
     @Transactional
+    // 복약 일정 비활성화 암호화 이벤트 저장
     public void deactivate(Long currentUserId, Long scheduleId) {
         MedicationSchedule schedule = getScheduleOrThrow(scheduleId);
         assertCanAccessWard(currentUserId, schedule.getWardId());
@@ -237,16 +242,19 @@ public class MedicationScheduleService {
                 List.of(),
                 false
         );
+        // 비활성화된 복약 일정 상태를 암호화 이벤트로 저장
         EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(schedule, payload);
         schedule.linkEncryptedActivityLog(encryptedLog.getId());
         eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(schedule.getWardId()));
         notifyWardScheduleChanged(currentUserId, schedule.getWardId());
     }
 
+    // 복약 일정 payload 암호화 저장
     private EncryptedActivityLog saveEncryptedScheduleEvent(MedicationSchedule schedule, MedicationSchedulePayload payload) {
         // occurredAt은 "이 이벤트가 발생한 시각" — 약 복용 예정 시각이 아니라 지금 시각이어야 한다.
         // payload.scheduledTime() 기준으로 잡으면 시간을 앞당기는 수정(오후→오전) 시 새 이벤트의
         // occurredAt이 옛 이벤트보다 빨라져서 source query의 정렬에서 옛 값이 덮어쓰는 버그 발생.
+        // 복약 일정 payload를 encrypted_activity_log에 암호화 저장
         return encryptedSourceEventService.saveRequiredSourceEvent(
                 schedule.getWardId(),
                 ActivityEventType.MEDICATION_EVENT,
@@ -371,6 +379,7 @@ public class MedicationScheduleService {
         throw new CustomException(ErrorCode.MEDICATION_ACCESS_DENIED);
     }
 
+    // 복약 일정 내부 비활성화 암호화 저장
     private void deactivateScheduleById(Long scheduleId) {
         MedicationSchedule entity = getScheduleOrThrow(scheduleId);
         entity.deactivate();
@@ -379,6 +388,7 @@ public class MedicationScheduleService {
                 null, null, null, null, null, null,
                 List.of(), false
         );
+        // 비활성화된 복약 일정 상태를 암호화 이벤트로 저장
         EncryptedActivityLog logEvent = saveEncryptedScheduleEvent(entity, payload);
         entity.linkEncryptedActivityLog(logEvent.getId());
     }
@@ -388,6 +398,7 @@ public class MedicationScheduleService {
      * 정상 처방만 등록, 1일 N회는 기본 시각 N개 row로 펼침. 약 데이터는 암호화 경로로 저장.
      */
     @Transactional
+    // 처방 기반 복약 일정 자동 등록과 암호화 저장
     public AutoRegisterResult autoRegisterFromPrescriptions(Long wardId, List<PrescriptionImportItem> items) {
         List<String> registered = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
@@ -440,6 +451,7 @@ public class MedicationScheduleService {
                         startDate,   // ← 추가
                         endDate      // ← 추가
                 );
+                // CODEF 처방 복약 일정을 암호화 이벤트로 저장
                 EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(saved, payload);
                 saved.linkEncryptedActivityLog(encryptedLog.getId());
             }
@@ -455,6 +467,7 @@ public class MedicationScheduleService {
 
     /** 종료일 지난 활성 일정 비활성화. 알람을 멈추려면 암호화 DEACTIVATED 이벤트가 필요. */
     @Transactional
+    // 만료 복약 일정 비활성화 암호화 저장
     public int deactivateExpiredSchedules(LocalDate today) {
         List<MedicationSchedule> expired =
                 medicationScheduleRepository.findByActiveTrueAndEndDateBefore(today);
@@ -466,6 +479,7 @@ public class MedicationScheduleService {
                         "DEACTIVATED", schedule.getId(),
                         null, null, null, null, null, null, List.of(), false
                 );
+                // 만료된 복약 일정 비활성화 이벤트를 암호화 저장
                 EncryptedActivityLog logEvent = saveEncryptedScheduleEvent(schedule, payload);
                 schedule.linkEncryptedActivityLog(logEvent.getId());
                 eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(schedule.getWardId()));

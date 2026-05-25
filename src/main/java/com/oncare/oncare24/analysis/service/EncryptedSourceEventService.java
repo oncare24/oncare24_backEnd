@@ -32,6 +32,7 @@ public class EncryptedSourceEventService {
     @Value("${oncare.security.crypto.enabled:false}")
     private boolean cryptoEnabled;
 
+    // 선택 원천 이벤트 암호화 저장 진입점
     public void saveSourceEvent(
             Long wardId,
             ActivityEventType eventType,
@@ -49,6 +50,7 @@ public class EncryptedSourceEventService {
                 GuardianWardStatus.ACCEPTED
         );
         try {
+            // 원천 이벤트 payload를 ward와 보호자용 암호화 패키지로 변환
             EncryptedPayload encryptedPayload = encryptForWard(
                     payload,
                     wardId,
@@ -58,6 +60,7 @@ public class EncryptedSourceEventService {
                     sourceId,
                     guardians
             );
+            // 암호화된 원천 이벤트를 encrypted_activity_log에 저장
             encryptedActivityLogService.saveEncryptedActivityLog(
                     wardId,
                     eventType,
@@ -78,6 +81,7 @@ public class EncryptedSourceEventService {
         }
     }
 
+    // 필수 원천 이벤트 암호화 저장 진입점
     public EncryptedActivityLog saveRequiredSourceEvent(
             Long wardId,
             ActivityEventType eventType,
@@ -104,6 +108,7 @@ public class EncryptedSourceEventService {
                 sourceId,
                 guardians
         );
+        // 암호화된 원천 이벤트 저장 결과를 호출자에게 반환
         return encryptedActivityLogService.saveEncryptedActivityLog(
                 wardId,
                 eventType,
@@ -114,6 +119,7 @@ public class EncryptedSourceEventService {
         );
     }
 
+    // ward와 보호자 대상 암호화 패키지 생성
     private EncryptedPayload encryptForWard(
             Object payload,
             Long wardId,
@@ -123,9 +129,11 @@ public class EncryptedSourceEventService {
             Long sourceId,
             List<GuardianWard> guardians
     ) {
+        // ward 공개키로 복호화 가능한 암호화 수신자 구성
         byte[] wardPublicKey = mlKemKeyProvisionService.readPublicKey(wardId);
         EncryptedPayload encryptedPayload;
         if (guardians.isEmpty()) {
+            // 보호자 연결 전 ward 본인용으로 원천 이벤트 암호화
             encryptedPayload = commonCryptoService.encryptForUser(
                     payload,
                     wardId,
@@ -138,6 +146,7 @@ public class EncryptedSourceEventService {
             );
         } else {
             GuardianWard primaryGuardian = guardians.get(0);
+            // 보호자 공개키를 함께 사용해 ward와 보호자가 열 수 있는 패키지 생성
             byte[] guardianPublicKey = mlKemKeyProvisionService.readPublicKey(primaryGuardian.getGuardianId());
             encryptedPayload = commonCryptoService.encryptForUserAndGuardian(
                     payload,
@@ -153,8 +162,10 @@ public class EncryptedSourceEventService {
             );
         }
 
+        // data key에 대한 ward 본인용 envelope 보장
         keyEnvelopeProvisionService.provisionUserEnvelopeForDataKeyId(wardId, encryptedPayload.dataKeyId());
         for (GuardianWard guardian : guardians) {
+            // 연결된 보호자별 data key envelope 보장
             keyEnvelopeProvisionService.provisionGuardianEnvelopeForDataKeyId(
                     wardId,
                     guardian.getGuardianId(),

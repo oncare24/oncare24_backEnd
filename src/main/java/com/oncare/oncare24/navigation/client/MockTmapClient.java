@@ -45,7 +45,7 @@ public class MockTmapClient implements TmapClient {
                 NavigationCard.walk(
                         NavigationCardType.STRAIGHT,
                         distance + "m 직진",
-                        distance, duration, path
+                        distance, duration, path, null, null
                 ),
                 NavigationCard.arrival(request.endNameOrDefault() + " 도착")
         );
@@ -95,7 +95,7 @@ public class MockTmapClient implements TmapClient {
                 NavigationCard.walk(
                         NavigationCardType.WALK,
                         "테스트역까지 도보 " + walkStart + "m",
-                        walkStart, walkStartTime, walkStartPath
+                        walkStart, walkStartTime, walkStartPath, null, null
                 ),
                 NavigationCard.bus(
                         "120번 버스 탑승 (5정거장)",
@@ -107,7 +107,7 @@ public class MockTmapClient implements TmapClient {
                 NavigationCard.walk(
                         NavigationCardType.WALK,
                         request.endNameOrDefault() + "까지 도보 " + walkEnd + "m",
-                        walkEnd, walkEndTime, walkEndPath
+                        walkEnd, walkEndTime, walkEndPath, null, null
                 ),
                 NavigationCard.arrival(request.endNameOrDefault() + " 도착")
         );

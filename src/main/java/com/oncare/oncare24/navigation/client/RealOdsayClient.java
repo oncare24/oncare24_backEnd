@@ -256,7 +256,7 @@ public class RealOdsayClient implements TransitClient {
                 String instruction = label + " 도보 " + distance + "m";
                 List<List<Double>> path = extractWalkPath(sub);
                 return NavigationCard.walk(
-                        NavigationCardType.WALK, instruction, distance, sectionTime, path);
+                        NavigationCardType.WALK, instruction, distance, sectionTime, path, null, null);
             }
             case TRAFFIC_TYPE_BUS -> {
                 JsonNode lane = sub.path("lane").path(0);

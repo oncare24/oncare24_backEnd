@@ -60,7 +60,7 @@ public class MockOdsayClient implements TransitClient {
                 NavigationCard.walk(
                         NavigationCardType.WALK,
                         "정류장까지 도보 " + walkStart + "m",
-                        walkStart, walkStartTime, null
+                        walkStart, walkStartTime, null, null, null
                 ),
                 NavigationCard.bus(
                         "120번 버스 탑승 (5정거장)",
@@ -72,7 +72,7 @@ public class MockOdsayClient implements TransitClient {
                 NavigationCard.walk(
                         NavigationCardType.WALK,
                         request.endNameOrDefault() + "까지 도보 " + walkEnd + "m",
-                        walkEnd, walkEndTime, null
+                        walkEnd, walkEndTime, null, null, null
                 ),
                 NavigationCard.arrival(request.endNameOrDefault() + " 도착")
         );

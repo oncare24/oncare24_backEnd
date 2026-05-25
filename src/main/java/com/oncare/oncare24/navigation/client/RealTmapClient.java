@@ -145,6 +145,9 @@ public class RealTmapClient implements TmapClient {
 
                 int turnType = props.path("turnType").asInt(-1);
                 String desc = props.path("description").asText("");
+                // 어르신 안내용 랜드마크 — Tmap이 주는 시설명/주변 POI명 (없을 수 있음)
+                String facilityName = props.path("facilityName").asText("");
+                String nearPoiName = props.path("nearPoiName").asText("");
 
                 // 이 Point에 딸린 모든 LineString을 흡수 (다음 Point 전까지)
                 List<List<Double>> path = new ArrayList<>();
@@ -175,7 +178,7 @@ public class RealTmapClient implements TmapClient {
                 } else if (cardType == NavigationCardType.ARRIVAL) {
                     cards.add(NavigationCard.arrival(endName + " 도착", path));
                 } else {
-                    cards.add(NavigationCard.walk(cardType, fixedDesc, dist, time, path));  // ← desc → fixedDesc
+                    cards.add(NavigationCard.walk(cardType, fixedDesc, dist, time, path, facilityName, nearPoiName));
                 }
             }
 
@@ -247,7 +250,7 @@ public class RealTmapClient implements TmapClient {
                         String instruction = (endNameLeg.isBlank() ? "다음 정류장" : endNameLeg)
                                 + "까지 도보 " + distance + "m";
                         cards.add(NavigationCard.walk(
-                                NavigationCardType.WALK, instruction, distance, sectionTime, path));
+                                NavigationCardType.WALK, instruction, distance, sectionTime, path, null, null));
                     }
                     case "BUS" -> {
                         String busNumber = leg.path("route").asText("").replaceAll("^.*?:", "");

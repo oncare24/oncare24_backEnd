@@ -55,6 +55,13 @@ public class HospitalScoringService {
         return score(hospitals, userLat, userLon, now, null);
     }
 
+    /** 영업 상태 정렬 순위: 영업중(0) → 정보없음(1) → 영업종료(2). */
+    private static int openRank(Boolean openNow) {
+        if (Boolean.TRUE.equals(openNow)) return 0; // 영업중
+        if (openNow == null) return 1;              // 정보 없음
+        return 2;                                   // 영업종료
+    }
+
     /**
      * 진료과를 고려한 스코어링.
      */
@@ -71,9 +78,20 @@ public class HospitalScoringService {
             log.debug("[Scoring] dept={} is not name-filterable, skip dept boost", department);
         }
 
+        Comparator<ScoredHospital> ordering = Comparator
+                // 1순위: 영업중 → 정보없음 → 영업종료
+                .comparingInt((ScoredHospital h) -> openRank(h.isOpenNow()));
+        if (applyDeptMatch) {
+            // 2순위: 같은 영업 그룹 안에선 진료과가 정확히 맞는 곳 먼저
+            ordering = ordering.thenComparingInt(
+                    h -> DepartmentNameMatcher.nameMatches(h.name(), department) ? 0 : 1);
+        }
+        // 3순위: 가까운 순
+        ordering = ordering.thenComparingInt(ScoredHospital::distanceMeters);
+
         List<ScoredHospital> scored = hospitals.stream()
                 .map(h -> scoreOne(h, userLat, userLon, now, applyDeptMatch ? department : null))
-                .sorted(Comparator.comparingDouble(ScoredHospital::score).reversed())
+                .sorted(ordering)
                 .toList();
 
         if (applyDeptMatch) {
@@ -215,4 +233,6 @@ public class HospitalScoringService {
         if (h < 0 || h > 23 || m < 0 || m > 59) return null;
         return LocalTime.of(h, m);
     }
+
+
 }

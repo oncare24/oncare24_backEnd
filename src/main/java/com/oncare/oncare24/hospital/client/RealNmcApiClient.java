@@ -5,6 +5,8 @@ import com.oncare.oncare24.hospital.config.NmcProperties;
 import com.oncare.oncare24.hospital.dto.Department;
 import com.oncare.oncare24.hospital.dto.HospitalInfo;
 import com.oncare.oncare24.hospital.util.KoreanRegionMapper;
+import com.oncare.oncare24.kakao.client.KakaoLocalClient;
+import com.oncare.oncare24.kakao.dto.RegionCode;
 import com.oncare.oncare24.location.util.Haversine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -17,27 +19,25 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Set;
+
 /**
  * 국립중앙의료원 API 실제 호출 구현체 (병의원 검색).
  * <p>
- * <b>응답 처리</b>:
- * <ul>
- *     <li>QD(진료과) 파라미터는 NMC dgsbjtCd 매핑 검증 이슈로 비활성. 시도(Q0)만으로 검색하고
- *         진료과 필터링은 클라이언트 사이드 (DepartmentNameMatcher)에서 수행.</li>
- *     <li>응답 본문 일부 로깅 — 진단 가시성 확보</li>
- *     <li>ClassCastException 방어 — body/items 노드가 String일 수 있음(에러 응답)</li>
- * </ul>
+ * <b>검색 범위</b>: 사용자 좌표 + 반경 테두리가 걸치는 시군구(Q1) 단위로만 호출한다.
+ * NMC 목록 API는 좌표/반경 검색을 지원하지 않아 지역 단위로 받아 거리로 거르는데,
+ * 시도(Q0) 전체를 받으면 결과가 수천 건이라 페이지 상한(500)에 가까운 병원이 잘려 누락된다.
+ * 좌표를 카카오로 시군구까지 역지오코딩해 동네 단위로 좁히면 누락 구조 자체가 사라진다.
  *
- * <b>NMC 에러 응답 형식</b>: 정상 응답은 {@code response > body > items > item} 구조이지만,
- * 키 미등록/한도 초과 등에서는 {@code OpenAPI_ServiceResponse > cmmMsgHeader > errMsg} 등을 보냄.
- *
- * <b>활성화</b>: {@code nmc.mock=false}일 때.
+ * <p><b>진료과(QD)</b>는 NMC dgsbjtCd 매핑 이슈로 비활성 — 진료과 필터링은 DepartmentNameMatcher(이름 매칭).
+ * <b>활성화</b>: {@code nmc.mock=false}.
  */
 @Slf4j
 @Component
@@ -49,31 +49,42 @@ public class RealNmcApiClient implements NmcApiClient {
 
     private final NmcProperties properties;
     private final RestClient restClient;
+    private final KakaoLocalClient kakaoLocalClient;
 
     public RealNmcApiClient(
             NmcProperties properties,
-            @Qualifier("nmcRestClient") RestClient restClient
+            @Qualifier("nmcRestClient") RestClient restClient,
+            KakaoLocalClient kakaoLocalClient
     ) {
         this.properties = properties;
         this.restClient = restClient;
+        this.kakaoLocalClient = kakaoLocalClient;
     }
 
     @Override
     public List<HospitalInfo> searchHospitals(
             double latitude, double longitude, int radiusMeters, Department department) {
 
-        List<String> sidos = KoreanRegionMapper.resolveAll(latitude, longitude);
-        log.info("[NMC] hospitals search: ({}, {}) → sidos={}, dept={}",
-                latitude, longitude, sidos, department);
+        // 좌표 + 반경 테두리가 걸치는 시군구들을 모아 동네 단위로만 NMC 호출.
+        Set<RegionCode> regions = resolveRegions(latitude, longitude, radiusMeters);
+        log.info("[NMC] hospitals search: ({}, {}) r={}m → regions={}, dept={}",
+                latitude, longitude, radiusMeters, regions, department);
 
-        // 경계 지역은 좌표가 여러 시도에 동시에 걸침 → 모두 검색 후 병합.
-        // 매칭이 없으면 시도 제한 없이 1회 호출.
         List<HospitalInfo> all = new ArrayList<>();
-        if (sidos.isEmpty()) {
-            all.addAll(callForSido(null));
-        } else {
-            for (String sido : sidos) {
-                all.addAll(callForSido(sido));
+        for (RegionCode region : regions) {
+            all.addAll(callForRegion(region.sido(), region.sigungu()));
+        }
+
+        // 안전망: 시군구 검색이 비면(카카오 실패 / Q0·Q1 형식 불일치 등) 기존 시도 단위로 폴백.
+        if (all.isEmpty()) {
+            log.warn("[NMC] sigungu search empty → fallback to sido search");
+            List<String> sidos = KoreanRegionMapper.resolveAll(latitude, longitude);
+            if (sidos.isEmpty()) {
+                all.addAll(callForRegion(null, null));
+            } else {
+                for (String sido : sidos) {
+                    all.addAll(callForRegion(sido, null));
+                }
             }
         }
 
@@ -81,8 +92,31 @@ public class RealNmcApiClient implements NmcApiClient {
         return filterByDistance(deduped, latitude, longitude, radiusMeters);
     }
 
-    /** 시도 1곳(또는 제한 없음) NMC 호출. */
-    private List<HospitalInfo> callForSido(String sido) {
+    /** 중심 + 반경 테두리 8방위를 역지오코딩 → 걸치는 시군구 집합 (경계면 옆 동네 자동 포함). */
+    private Set<RegionCode> resolveRegions(double lat, double lon, int radiusMeters) {
+        Set<RegionCode> regions = new LinkedHashSet<>();
+        addRegion(regions, lat, lon); // 중심
+
+        double metersPerDegLat = 111_320.0;
+        double metersPerDegLon = 111_320.0 * Math.cos(Math.toRadians(lat));
+        for (int deg = 0; deg < 360; deg += 45) {
+            double rad = Math.toRadians(deg);
+            double dLat = (radiusMeters * Math.cos(rad)) / metersPerDegLat;
+            double dLon = (radiusMeters * Math.sin(rad)) / metersPerDegLon;
+            addRegion(regions, lat + dLat, lon + dLon);
+        }
+        return regions;
+    }
+
+    private void addRegion(Set<RegionCode> regions, double lat, double lon) {
+        RegionCode r = kakaoLocalClient.coord2region(lat, lon);
+        if (r != null && r.sigungu() != null) {
+            regions.add(r);
+        }
+    }
+
+    /** 시군구(Q1) 단위 NMC 호출. sigungu가 null이면 시도(Q0)만으로 호출(폴백용). */
+    private List<HospitalInfo> callForRegion(String sido, String sigungu) {
         UriComponentsBuilder builder = UriComponentsBuilder
                 .fromHttpUrl(properties.hospitalBaseUrl() + "/getHsptlMdcncListInfoInqire")
                 .queryParam("serviceKey", properties.serviceKey())
@@ -91,11 +125,14 @@ public class RealNmcApiClient implements NmcApiClient {
         if (sido != null) {
             builder.queryParam("Q0", urlEncode(sido));
         }
+        if (sigungu != null) {
+            builder.queryParam("Q1", urlEncode(sigungu));
+        }
         URI uri = builder.build(true).toUri();
         return callAndParse(uri);
     }
 
-    /** hpid 기준 중복 제거 (인접 시도 검색 시 동일 병원이 겹칠 수 있음). */
+    /** hpid 기준 중복 제거 (인접 시군구 검색 시 동일 병원이 겹칠 수 있음). */
     private List<HospitalInfo> dedupeByHpid(List<HospitalInfo> list) {
         Map<String, HospitalInfo> byId = new LinkedHashMap<>();
         for (HospitalInfo h : list) {
@@ -119,13 +156,11 @@ public class RealNmcApiClient implements NmcApiClient {
 
             String xml = new String(rawBytes, StandardCharsets.UTF_8);
 
-            // 응답 본문 일부 로그 - 진단용 (운영 시 제거 가능)
             String preview = xml.length() > 500 ? xml.substring(0, 500) : xml;
             log.info("[NMC] response preview: {}", preview);
 
             Map<String, Object> root = XML_MAPPER.readValue(xml, Map.class);
 
-            // 에러 응답 처리: cmmMsgHeader 또는 알 수 없는 루트
             Object bodyNode = root.get("body");
             if (bodyNode == null) {
                 Object headerNode = root.get("cmmMsgHeader");
@@ -137,7 +172,6 @@ public class RealNmcApiClient implements NmcApiClient {
                 return Collections.emptyList();
             }
 
-            // body가 Map이 아닌 케이스 (String 등) - 빈 응답 처리
             if (!(bodyNode instanceof Map<?, ?>)) {
                 log.warn("[NMC] body is not a Map: type={}, value={}",
                         bodyNode.getClass().getSimpleName(), bodyNode);
@@ -155,7 +189,6 @@ public class RealNmcApiClient implements NmcApiClient {
                 return Collections.emptyList();
             }
 
-            // items가 빈 문자열이면 결과 0개
             if (itemsNode instanceof String) {
                 log.info("[NMC] items is empty string (no results)");
                 return Collections.emptyList();

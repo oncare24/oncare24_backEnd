@@ -16,7 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
+import com.oncare.oncare24.kakao.dto.RegionCode;
 /**
  * 카카오 로컬 API 호출 클라이언트.
  * <p>
@@ -263,4 +263,51 @@ public class KakaoLocalClient {
     private String coordKey(PlaceSearchResult r) {
         return String.format("%.6f,%.6f", r.latitude(), r.longitude());
     }
+
+    /**
+     * 좌표 → 행정구역(시도/시군구) 변환. NMC 검색을 동네 단위로 좁히기 위해 사용.
+     * <p>카카오 coord2regioncode 응답의 region_1depth_name(시도) / region_2depth_name(시군구) 사용.
+     * 실패하거나 행정구역이 없으면(해상·산간) null.
+     */
+    @SuppressWarnings("unchecked")
+    public RegionCode coord2region(double latitude, double longitude) {
+        try {
+            Map<String, Object> raw = kakaoRestClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/v2/local/geo/coord2regioncode.json")
+                            // 카카오 명세: x=경도, y=위도
+                            .queryParam("x", longitude)
+                            .queryParam("y", latitude)
+                            .build())
+                    .retrieve()
+                    .body(Map.class);
+
+            if (raw == null) return null;
+
+            List<Map<String, Object>> documents = (List<Map<String, Object>>)
+                    raw.getOrDefault("documents", Collections.emptyList());
+            if (documents.isEmpty()) return null;
+
+            Map<String, Object> doc = documents.get(0);
+            String sido = (String) doc.get("region_1depth_name");
+            String sigungu = (String) doc.get("region_2depth_name");
+            if (sido == null || sido.isBlank()) return null;
+
+            return new RegionCode(sido.trim(), normalizeSigungu(sigungu));
+
+        } catch (RestClientException e) {
+            log.warn("[KAKAO-LOCAL] coord2region failed. lat={}, lng={}: {}",
+                    latitude, longitude, e.getMessage());
+            return null;
+        }
+    }
+
+    /** "수원시 영통구"·"포항시 북구"처럼 시+구로 오면 NMC Q1용으로 시 단위만 사용. */
+    private String normalizeSigungu(String sigungu) {
+        if (sigungu == null || sigungu.isBlank()) return null;
+        String s = sigungu.trim();
+        int sp = s.indexOf(' ');
+        return sp > 0 ? s.substring(0, sp) : s;
+    }
+
 }

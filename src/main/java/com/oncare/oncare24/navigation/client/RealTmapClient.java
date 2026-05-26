@@ -210,7 +210,9 @@ public class RealTmapClient implements TmapClient {
             case 12 -> NavigationCardType.TURN_LEFT;
             case 13 -> NavigationCardType.TURN_RIGHT;
             case 14 -> NavigationCardType.TURN_BACK;
-            case 125, 211, 212, 213, 214 -> NavigationCardType.CROSSWALK;
+            case 125, 211, 233 -> NavigationCardType.CROSSWALK;
+            case 212, 214, 215 -> NavigationCardType.CROSSWALK_LEFT;
+            case 213, 216, 217 -> NavigationCardType.CROSSWALK_RIGHT;
             default -> NavigationCardType.STRAIGHT;
         };
     }

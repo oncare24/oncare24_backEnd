@@ -420,7 +420,16 @@ public class MedicationScheduleService {
                 skipped.add(name);   // 자동 시간 배정에 필요한 값 부족 → 직접 등록 안내
                 continue;
             }
+            // ===== 데모 전용 (발표 후 제거): 조제일이 과거라 오늘 기준으로 당기되,
+            //       처방번호 해시로 약마다 시작일을 0~6일 다르게 (전부 오늘 포함 유지) =====
+            int offset = Math.floorMod(
+                    (item.prescribeNo() == null ? name : item.prescribeNo()).hashCode(), 7);
+            startDate = LocalDate.now().minusDays(6L - offset); // 오늘 -6 ~ 0일 사이에서 시작
             LocalDate endDate = startDate.plusDays(totalDays - 1L);
+            if (endDate.isBefore(LocalDate.now().plusDays(1L))) {
+                endDate = LocalDate.now().plusDays(2L); // 종료일이 너무 빠르면 최소 모레까지 보장
+            }
+            // (원래: startDate = parseYmd(item.manufactureDate()); endDate = startDate.plusDays(totalDays - 1L);)
 
             String codefKeyBidx = codefKeyHasher.hash(item.prescribeNo(), item.drugCode());
             if (codefKeyBidx != null

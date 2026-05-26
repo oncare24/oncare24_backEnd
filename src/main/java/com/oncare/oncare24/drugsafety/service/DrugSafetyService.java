@@ -106,7 +106,9 @@ public class DrugSafetyService {
         );
 
         List<WarningDto> warnings = response.getWarnings();
-        List<PrescriptionDto> prescriptions = response.getPrescriptions();
+        List<PrescriptionDto> prescriptions = response.getPrescriptions().stream()
+                .filter(p -> !isTopicalEyeDrug(p.getResDrugName()))
+                .toList();
 
         String warningsJson = serializeWarnings(warnings);
         String prescriptionsJson = serializePrescriptions(prescriptions);
@@ -155,6 +157,13 @@ public class DrugSafetyService {
                 .analyzedAt(analyzedAt)
                 .autoRegisterResult(autoRegisterResult)   // ← 추가
                 .build();
+    }
+
+    /** 점안액·안약 등 외용 약은 복약 일정/안전분석 대상에서 제외 (먹는 약만). */
+    private boolean isTopicalEyeDrug(String drugName) {
+        if (drugName == null) return false;
+        String n = drugName.replaceAll("\\s", "");
+        return n.contains("점안") || n.contains("안약");
     }
 
     /**

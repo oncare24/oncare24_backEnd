@@ -67,7 +67,7 @@ public class NotificationService {
     @Transactional
     public void notifyZoneExit(Long wardId, String wardName) {
         String title = "안전구역 이탈 알림";
-        String body = String.format("%s님이 안심구역에서 벗어났어요.", wardName);
+        String body = String.format("%s님이 안전구역에서 벗어났어요.", wardName);
 
         java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
         dataPayload.put("type", "ZONE_EXIT");
@@ -82,7 +82,7 @@ public class NotificationService {
     @Transactional
     public void notifyZoneEnter(Long wardId, String wardName) {
         String title = "안전구역 복귀 알림";
-        String body = String.format("%s님이 안심구역으로 돌아왔어요.", wardName);
+        String body = String.format("%s님이 안전구역으로 돌아왔어요.", wardName);
 
         java.util.Map<String, String> dataPayload = new java.util.HashMap<>();
         dataPayload.put("type", "ZONE_ENTER");

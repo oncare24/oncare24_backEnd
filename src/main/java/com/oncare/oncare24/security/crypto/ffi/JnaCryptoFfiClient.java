@@ -27,6 +27,7 @@ public class JnaCryptoFfiClient {
         this.objectMapper = objectMapper;
     }
 
+    // Rust FFI data key 생성 호출
     public byte[] generateDataKey() {
         Pointer handle = createFacade();
         try {
@@ -34,6 +35,7 @@ public class JnaCryptoFfiClient {
             long expiresAt = createdAt + DATA_KEY_TTL_SECONDS;
             CryptoFfiNative.BorrowedArg keyId = CryptoFfiNative.BorrowedArg.utf8(GENERATED_KEY_ID);
 
+            // Rust FFI를 호출해 32바이트 data key 생성
             byte[] dataKey = callBytes(out -> lib.crypto_ffi_generate_data_key(
                     handle,
                     keyId.asByValue(),
@@ -54,9 +56,11 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // Rust FFI ML-KEM 키쌍 생성 호출
     public MlKemKeyPair generateMlKemKeypair() {
         Pointer handle = createFacade();
         try {
+            // Rust FFI를 호출해 ML-KEM-1024 키쌍 생성
             byte[] keypairJson = callBytes(out -> lib.crypto_ffi_generate_mlkem_keypair(handle, out));
             MlKemKeyPair keyPair = readMlKemKeyPair(keypairJson);
             if (!ML_KEM_1024.equals(keyPair.algorithm())) {
@@ -74,6 +78,7 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // Rust FFI key envelope 생성 호출
     public byte[] createKeyEnvelope(
             byte[] dataKey,
             String keyId,
@@ -97,12 +102,14 @@ public class JnaCryptoFfiClient {
             request.owner_type = ownerType;
             request.public_key = publicKeyArg.asStruct();
 
+            // Rust FFI를 호출해 owner 공개키용 key envelope 생성
             return callBytes(out -> lib.crypto_ffi_create_key_envelope(handle, request, out));
         } finally {
             check(lib.crypto_ffi_facade_free(handle), "crypto_ffi_facade_free failed");
         }
     }
 
+    // Rust FFI 암호화 패키지 생성 호출
     public byte[] encryptPackage(
             byte[] dataKey,
             String keyId,
@@ -139,12 +146,14 @@ public class JnaCryptoFfiClient {
             request.guardian_public_key = guardianPublicKeyArg.asStruct();
             request.data_key = dataKeyInput(keyIdArg, dataKey, createdAt, expiresAt);
 
+            // Rust FFI를 호출해 복호화 가능한 암호화 패키지 생성
             return callBytes(out -> lib.crypto_ffi_encrypt_package(handle, request, out));
         } finally {
             check(lib.crypto_ffi_facade_free(handle), "crypto_ffi_facade_free failed");
         }
     }
 
+    // Rust FFI 암호화 패키지 복호화 호출
     public byte[] decryptPackage(
             byte[] encryptedPackage,
             long callerId,
@@ -169,12 +178,14 @@ public class JnaCryptoFfiClient {
             request.caller_type = callerType;
             request.private_key = privateKeyArg.asStruct();
 
+            // Rust FFI를 호출해 암호화 패키지 복호화
             return callBytes(out -> lib.crypto_ffi_decrypt_package(handle, request, out));
         } finally {
             check(lib.crypto_ffi_facade_free(handle), "crypto_ffi_facade_free failed");
         }
     }
 
+    // Rust FFI key envelope 개봉 호출
     public byte[] openKeyEnvelope(
             byte[] envelopeJson,
             String callerId,
@@ -194,6 +205,7 @@ public class JnaCryptoFfiClient {
             request.caller_type = callerType;
             request.private_key = privateKeyArg.asStruct();
 
+            // Rust FFI를 호출해 key envelope에서 data key 복원
             byte[] dataKey = callBytes(out -> lib.crypto_ffi_open_key_envelope(handle, request, out));
             requireDataKey(dataKey);
             return dataKey;
@@ -202,6 +214,7 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // Rust FFI facade 핸들 생성
     private Pointer createFacade() {
         PointerByReference outHandle = new PointerByReference();
         check(lib.crypto_ffi_facade_new_default(outHandle), "crypto_ffi_facade_new_default failed");
@@ -212,6 +225,7 @@ public class JnaCryptoFfiClient {
         return handle;
     }
 
+    // Rust FFI 반환 버퍼 복사 및 해제
     private byte[] callBytes(NativeBytesCall call) {
         CryptoFfiNative.FfiByteBuffer.ByReference out = new CryptoFfiNative.FfiByteBuffer.ByReference();
         check(call.invoke(out), "native bytes call failed");
@@ -223,6 +237,7 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // ML-KEM 키쌍 JSON 파싱
     private MlKemKeyPair readMlKemKeyPair(byte[] keypairJson) {
         try {
             return objectMapper.readValue(keypairJson, MlKemKeyPair.class);
@@ -231,6 +246,7 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // FFI data key 입력 구조체 생성
     private static CryptoFfiNative.FfiDataKeyInput dataKeyInput(
             CryptoFfiNative.BorrowedArg keyIdArg,
             byte[] dataKey,
@@ -245,6 +261,7 @@ public class JnaCryptoFfiClient {
         );
     }
 
+    // 32바이트 data key 길이 검증
     private static void requireDataKey(byte[] dataKey) {
         if (dataKey == null || dataKey.length != DATA_KEY_LENGTH_BYTES) {
             throw new IllegalStateException(
@@ -254,12 +271,14 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // FFI 바이트 입력 공백 검증
     private static void requireNonEmpty(byte[] value, String fieldName) {
         if (value == null || value.length == 0) {
             throw new IllegalArgumentException(fieldName + " must not be empty");
         }
     }
 
+    // FFI owner id 숫자 변환
     private static long parseUnsignedId(String value, String fieldName) {
         try {
             long parsed = Long.parseLong(value);
@@ -272,6 +291,7 @@ public class JnaCryptoFfiClient {
         }
     }
 
+    // FFI 반환 코드 검증
     private void check(int code, String operation) {
         if (code == CryptoFfiNative.FFI_ERROR_OK) {
             return;
@@ -279,6 +299,7 @@ public class JnaCryptoFfiClient {
         throw new CryptoFfiException(operation + ": code=" + code + ", message=" + lastErrorMessage());
     }
 
+    // FFI 마지막 오류 메시지 조회
     private String lastErrorMessage() {
         long len = lib.crypto_ffi_last_error_message_length().longValue();
         if (len <= 0) {

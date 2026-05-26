@@ -44,6 +44,7 @@ public class CommonCryptoService {
         this.cryptoFfiClient = cryptoFfiClient;
     }
 
+    // 사용자와 보호자 공개키 기반 payload 암호화
     public EncryptedPayload encryptForUserAndGuardian(
             Object plaintextPayload,
             Map<String, Object> aad,
@@ -53,9 +54,13 @@ public class CommonCryptoService {
             byte[] guardianPublicKey
     ) {
         requireCryptoEnabled();
+        // OpenBao/KMS에서 오늘 data key 조회 또는 생성
         DataKeyProvisionService.ProvisionedDataKey dataKey = dataKeyProvisionService.getOrCreateTodayDataKey();
+        // 원천 payload를 JSON 바이트 평문으로 직렬화
         byte[] plaintext = writeJsonBytes(plaintextPayload);
+        // 암호화 메타데이터를 AAD JSON으로 직렬화
         String aadJson = writeAadJson(aad);
+        // Rust FFI로 data key와 수신자 공개키를 전달해 암호화 패키지 생성
         byte[] encryptedPackage = cryptoFfiClient.encryptPackage(
                 dataKey.keyValue(),
                 dataKey.keyId(),
@@ -68,6 +73,7 @@ public class CommonCryptoService {
         return new EncryptedPayload(dataKey.keyId(), encryptedPackage, aadJson);
     }
 
+    // 사용자 공개키 기반 payload 암호화
     public EncryptedPayload encryptForUser(
             Object plaintextPayload,
             Map<String, Object> aad,
@@ -84,6 +90,7 @@ public class CommonCryptoService {
         );
     }
 
+    // 암호화 패키지 원문 복호화
     public byte[] decryptFromPackage(
             String dataKeyId,
             byte[] encryptedPackage,
@@ -93,11 +100,15 @@ public class CommonCryptoService {
             byte[] privateKey
     ) {
         requireCryptoEnabled();
+        // data key 존재 여부를 OpenBao/KMS에서 확인
         dataKeyProvisionService.getDataKey(dataKeyId);
+        // 저장된 AAD JSON 형식 검증
         requireValidAadJson(aadJson);
+        // Rust FFI로 암호화 패키지를 복호화
         return cryptoFfiClient.decryptPackage(encryptedPackage, callerId, callerType, privateKey);
     }
 
+    // 암호화 패키지 원문 복호화
     public <T> T decryptFromPackage(
             String dataKeyId,
             byte[] encryptedPackage,
@@ -115,6 +126,7 @@ public class CommonCryptoService {
         }
     }
 
+    // 사용자와 보호자 공개키 기반 payload 암호화
     public EncryptedPayload encryptForUserAndGuardian(
             Object plaintextPayload,
             long wardId,
@@ -141,6 +153,7 @@ public class CommonCryptoService {
         );
     }
 
+    // 사용자 공개키 기반 payload 암호화
     public EncryptedPayload encryptForUser(
             Object plaintextPayload,
             long wardId,
@@ -158,6 +171,7 @@ public class CommonCryptoService {
         return encryptForUser(plaintext, aad, userId, userPublicKey);
     }
 
+    // 사용자와 보호자 공개키 기반 payload 암호화
     public EncryptedPayload encryptForUserAndGuardian(
             Object plaintextPayload,
             long wardId,
@@ -183,6 +197,7 @@ public class CommonCryptoService {
         );
     }
 
+    // encrypted_activity_log payload 복호화
     public byte[] decryptActivityLogPayload(
             String dataKeyId,
             byte[] encryptedPackage,
@@ -191,8 +206,10 @@ public class CommonCryptoService {
             int callerType,
             byte[] privateKey
     ) {
+        // encrypted_activity_log 전체 평문을 복호화
         byte[] plaintext = decryptFromPackage(dataKeyId, encryptedPackage, aadJson, callerId, callerType, privateKey);
         JsonNode root = readPlaintextTree(plaintext);
+        // 복호화된 metadata와 저장된 AAD 일치 여부 검증
         verifyPlaintextMetadataMatchesAad(root, aadJson);
         JsonNode payload = root.get("payload");
         if (payload == null) {
@@ -201,6 +218,7 @@ public class CommonCryptoService {
         return writeJsonBytes(payload);
     }
 
+    // encrypted_activity_log payload 복호화
     public <T> T decryptActivityLogPayload(
             String dataKeyId,
             byte[] encryptedPackage,
@@ -218,6 +236,7 @@ public class CommonCryptoService {
         }
     }
 
+    // 활동 로그 AAD 메타데이터 생성
     public static Map<String, Object> activityLogAad(
             long wardId,
             String eventType,
@@ -227,6 +246,7 @@ public class CommonCryptoService {
         return activityLogMetadata(wardId, eventType, null, sourceTable, sourceId);
     }
 
+    // 활동 로그 암호화 메타데이터 생성
     public static Map<String, Object> activityLogMetadata(
             long wardId,
             String eventType,
@@ -257,6 +277,7 @@ public class CommonCryptoService {
         return OWNER_TYPE_GUARDIAN;
     }
 
+    // 암호화 대상 payload JSON 바이트 변환
     private byte[] writeJsonBytes(Object payload) {
         try {
             return objectMapper.writeValueAsBytes(payload);
@@ -265,6 +286,7 @@ public class CommonCryptoService {
         }
     }
 
+    // AAD 메타데이터 JSON 변환
     private String writeAadJson(Map<String, Object> aad) {
         try {
             return objectMapper.writeValueAsString(aad == null ? Map.of() : aad);
@@ -273,6 +295,7 @@ public class CommonCryptoService {
         }
     }
 
+    // 저장된 AAD JSON 유효성 확인
     private void requireValidAadJson(String aadJson) {
         if (aadJson == null || aadJson.isBlank()) {
             return;
@@ -284,6 +307,7 @@ public class CommonCryptoService {
         }
     }
 
+    // 복호화된 JSON 평문 파싱
     private JsonNode readPlaintextTree(byte[] plaintext) {
         try {
             return objectMapper.readTree(plaintext);
@@ -292,6 +316,7 @@ public class CommonCryptoService {
         }
     }
 
+    // 복호화 metadata와 AAD 일치 검증
     private void verifyPlaintextMetadataMatchesAad(JsonNode plaintextRoot, String aadJson) {
         JsonNode metadata = plaintextRoot.get("metadata");
         if (metadata == null || !metadata.isObject()) {
@@ -303,6 +328,7 @@ public class CommonCryptoService {
         }
     }
 
+    // AAD JSON 트리 파싱
     private JsonNode readAadTree(String aadJson) {
         if (aadJson == null || aadJson.isBlank()) {
             throw new IllegalStateException("aadJson is required for activity log metadata verification");
@@ -314,6 +340,7 @@ public class CommonCryptoService {
         }
     }
 
+    // 암호화 기능 활성화 여부 확인
     private void requireCryptoEnabled() {
         if (!cryptoEnabled) {
             throw new IllegalStateException("Crypto is disabled. Set ONCARE_SECURITY_CRYPTO_ENABLED=true to use CommonCryptoService.");

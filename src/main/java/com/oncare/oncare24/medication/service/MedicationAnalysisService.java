@@ -44,6 +44,7 @@ public class MedicationAnalysisService {
     private final AnalysisStateService analysisStateService;
 
     @Transactional(readOnly = true)
+    // 단일 ward 복약 분석 진입점
     public List<MedicationAnalysisResult> analyzeWardMedication(Long wardId, LocalDate analysisDate) {
         assertWardIsElder(wardId);
 
@@ -54,6 +55,7 @@ public class MedicationAnalysisService {
     }
 
     @Transactional(readOnly = true)
+    // 전체 활성 ward 복약 분석 진입점
     public List<MedicationAnalysisResult> analyzeAllActiveWardMedication(LocalDate analysisDate) {
         List<MedicationSchedule> schedules = medicationScheduleRepository
                 .findByActiveTrueOrderByWardIdAscScheduledTimeAsc();
@@ -71,14 +73,17 @@ public class MedicationAnalysisService {
                 .toList();
     }
 
+    // 암호화 복약 원천 복호화 후 분석
     private List<MedicationAnalysisResult> analyzeSchedules(
             Long wardId,
             List<MedicationSchedule> schedules,
             LocalDate analysisDate,
             LocalDateTime now
     ) {
+        // 분석 대상 ward 개인키로 암호화된 복약 원천 데이터 복호화 준비
         byte[] wardPrivateKey = readWardPrivateKey(wardId, schedules);
         List<DecryptedSchedule> decryptedSchedules = schedules.stream()
+                // 최신 복약 일정 이벤트를 복호화해서 분석 입력으로 사용
                 .map(schedule -> decryptLatestSchedule(schedule, wardPrivateKey))
                 .flatMap(Optional::stream)
                 .filter(schedule -> schedule.payload().active())
@@ -111,6 +116,7 @@ public class MedicationAnalysisService {
                         searchEnd
                 )
                 .stream()
+                // 분석 구간의 복약 기록 이벤트를 복호화해서 일정별로 묶음
                 .map(log -> decryptActivityPayload(log, wardPrivateKey, MedicationLogPayload.class))
                 .filter(log -> log.scheduleId() != null)
                 .filter(log -> scheduleIds.contains(log.scheduleId()))
@@ -253,6 +259,7 @@ public class MedicationAnalysisService {
         }
     }
 
+    // 분석용 ward 개인키 조회
     private byte[] readWardPrivateKey(Long wardId, List<MedicationSchedule> schedules) {
         Long resolvedWardId = resolveWardId(wardId, schedules);
         return mlKemKeyProvisionService.readPrivateKey(resolvedWardId);
@@ -268,7 +275,9 @@ public class MedicationAnalysisService {
                 .orElseThrow(() -> new IllegalStateException("wardId cannot be resolved from medication schedules"));
     }
 
+    // 최신 복약 일정 암호화 이벤트 복호화
     private Optional<DecryptedSchedule> decryptLatestSchedule(MedicationSchedule schedule, byte[] wardPrivateKey) {
+        // 복약 일정의 최신 encrypted_activity_log를 조회해 복호화
         return encryptedActivityLogRepository
                 .findFirstBySourceTableAndSourceIdAndEventTypeOrderByOccurredAtDesc(
                         "medication_schedule",
@@ -279,7 +288,9 @@ public class MedicationAnalysisService {
                 .map(payload -> new DecryptedSchedule(schedule.getWardId(), schedule.getId(), payload));
     }
 
+    // 복약 분석 원천 payload 복호화
     private <T> T decryptActivityPayload(EncryptedActivityLog log, byte[] wardPrivateKey, Class<T> payloadType) {
+        // 암호화된 복약 분석 원천 payload 복호화
         return commonCryptoService.decryptActivityLogPayload(
                 log.getDataKeyId(),
                 log.getEncryptedPackage(),

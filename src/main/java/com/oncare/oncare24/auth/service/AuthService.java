@@ -39,6 +39,7 @@ public class AuthService {
      */
     // back/src/main/java/com/oncare/oncare24/auth/service/AuthService.java  (signUp 메서드만 교체)
     @Transactional
+    // 계정 생성과 ML-KEM 키 provision 진입점
     public SignUpResponse signUp(SignUpRequest request) {
         if (userRepository.existsByPhone(request.phone())) {
             throw new CustomException(ErrorCode.DUPLICATE_PHONE);
@@ -59,6 +60,7 @@ public class AuthService {
                 .isPregnant(request.isPregnant())
                 .build();
         User saved = userRepository.save(user);
+        // 계정 생성 후 ML-KEM 키쌍 생성 및 OpenBao 저장
         mlKemKeyProvisionService.provisionUserMlKemKey(saved.getId());
         if (saved.getRole() == UserRole.ELDER) {
             inactivityRuleProvisionService.provisionDefaultRule(saved.getId());

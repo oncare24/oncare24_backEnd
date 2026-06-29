@@ -61,6 +61,9 @@ public class MedicationScheduleService {
     @Transactional
     // 복약 일정 생성과 암호화 이벤트 저장
     public MedicationScheduleResponse create(Long currentUserId, CreateMedicationScheduleRequest request) {
+        log.info("[MED-CREATE] userId={} wardId={} name={} time={} type={}",
+                currentUserId, request.wardId(), request.medicationName(),
+                request.scheduledTime(), request.scheduleType());
         List<DayOfWeek> daysOfWeek = normalizeDaysOfWeek(request.scheduleType(), request.dayOfWeek(), request.daysOfWeek());
         validateAllowanceMinutes(request.allowedEarlyMinutes(), request.allowedDelayMinutes());
         assertCanAccessWard(currentUserId, request.wardId());
@@ -127,6 +130,10 @@ public class MedicationScheduleService {
             Long scheduleId,
             UpdateMedicationScheduleRequest request
     ) {
+        log.info("[MED-UPDATE] userId={} scheduleId={} name={} time={} type={} active={}",
+                currentUserId, scheduleId, request.medicationName(), request.scheduledTime(),
+                request.scheduleType(), request.active());
+
         validateAllowanceMinutes(request.allowedEarlyMinutes(), request.allowedDelayMinutes());
 
         MedicationSchedule current = getScheduleOrThrow(scheduleId);

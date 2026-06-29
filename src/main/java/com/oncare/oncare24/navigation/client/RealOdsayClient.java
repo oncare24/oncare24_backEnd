@@ -15,7 +15,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +61,8 @@ public class RealOdsayClient implements TransitClient {
         this.properties = properties;
         this.restClient = restClient;
         this.objectMapper = objectMapper;
+        // RealOdsayClient 생성자 마지막 줄
+
     }
 
     @Override
@@ -66,6 +70,17 @@ public class RealOdsayClient implements TransitClient {
         log.info("[ODsay] transit search: ({}, {}) → ({}, {})",
                 request.startLat(), request.startLon(),
                 request.endLat(), request.endLon());
+
+        // ★ 진단: 키 해시 (확인 후 삭제)
+        try {
+            String key = properties.apiKey();
+            String hash = HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8)));
+            log.info("[ODsay] key sha256={}", hash);
+        } catch (Exception e) {
+            log.warn("[ODsay] hash fail", e);
+        }
+
 
         try {
             String response = restClient.get()

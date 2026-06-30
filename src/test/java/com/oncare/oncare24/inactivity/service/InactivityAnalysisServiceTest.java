@@ -64,6 +64,12 @@ class InactivityAnalysisServiceTest {
     @Mock
     private AnalysisStateService analysisStateService;
 
+    @Mock
+    private com.oncare.oncare24.analysis.repository.WardAnalysisStateRepository wardAnalysisStateRepository;
+
+    @Mock
+    private com.oncare.oncare24.notification.service.NotificationService notificationService;
+
     private InactivityAnalysisService inactivityAnalysisService;
 
     @BeforeEach
@@ -74,7 +80,9 @@ class InactivityAnalysisServiceTest {
                 commonCryptoService,
                 mlKemKeyProvisionService,
                 userRepository,
-                analysisStateService
+                analysisStateService,
+                wardAnalysisStateRepository,
+                notificationService
         );
     }
 

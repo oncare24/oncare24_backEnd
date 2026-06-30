@@ -48,6 +48,9 @@ class AuthServiceTest {
     @Mock
     private InactivityRuleProvisionService inactivityRuleProvisionService;
 
+    @Mock
+    private com.oncare.oncare24.notification.service.NotificationPreferenceProvisionService notificationPreferenceProvisionService;
+
     private AuthService authService;
 
     @BeforeEach
@@ -59,7 +62,8 @@ class AuthServiceTest {
                 jwtProperties,
                 refreshTokenService,
                 mlKemKeyProvisionService,
-                inactivityRuleProvisionService
+                inactivityRuleProvisionService,
+                notificationPreferenceProvisionService
         );
     }
 
@@ -73,7 +77,9 @@ class AuthServiceTest {
                 "01012345678",
                 "123456",
                 "ward",
-                UserRole.ELDER
+                UserRole.ELDER,
+                75,
+                false
         ));
 
         assertThat(response.userId()).isEqualTo(ELDER_ID);
@@ -91,7 +97,9 @@ class AuthServiceTest {
                 "01087654321",
                 "123456",
                 "guardian",
-                UserRole.GUARDIAN
+                UserRole.GUARDIAN,
+                null,
+                null
         ));
 
         verify(inactivityRuleProvisionService, never()).provisionDefaultRule(any());

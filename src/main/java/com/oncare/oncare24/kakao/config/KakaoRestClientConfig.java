@@ -13,7 +13,7 @@ import java.time.Duration;
  * 카카오 로컬 API 호출용 RestClient.
  * <p>
  * Authorization 헤더(KakaoAK {REST_API_KEY}) 기본 부착.
- * 별도 RestClient를 둔 이유: NMC/OpenAI와 인증 헤더·timeout 정책이 다르기 때문.
+ * 별도 RestClient를 둔 이유: 다른 외부 연동과 인증 헤더·timeout 정책이 다르기 때문.
  */
 @Configuration
 @RequiredArgsConstructor

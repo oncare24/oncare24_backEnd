@@ -65,8 +65,6 @@ dependencies {
 	implementation 'com.google.firebase:firebase-admin:9.4.3'
 	// === SOLAPI Java SDK (SMS) ===
 	implementation 'net.nurigo:sdk:4.2.7'
-    // === NMC API XML ===
-    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml'
 }
 
 tasks.named('test') {

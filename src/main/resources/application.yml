@@ -46,24 +46,6 @@ springdoc:
   default-produces-media-type: application/json
 
 # ===========================
-# OpenAI
-# ===========================
-openai:
-  api-key: ${OPENAI_API_KEY:}
-  model: gpt-4o-mini
-  timeout-seconds: 15
-  enabled: ${OPENAI_ENABLED:true}
-
-# ===========================
-# 국립중앙의료원
-# ===========================
-nmc:
-  service-key: ${NMC_SERVICE_KEY:}
-  hospital-base-url: http://apis.data.go.kr/B552657/HsptlAsembySearchService
-  timeout-seconds: 5
-  mock: false
-
-# ===========================
 # Kakao Local API
 # ===========================
 kakao:
@@ -88,23 +70,6 @@ sms:
   api-secret: ${SMS_API_SECRET:}
   from: ${SMS_FROM:}
   base-url: https://api.solapi.com
-# ===========================
-# TMAP
-# ===========================
-tmap:
-  app-key: ${TMAP_APP_KEY:}
-  pedestrian-url: https://apis.openapi.sk.com/tmap/routes/pedestrian
-  transit-url: https://apis.openapi.sk.com/transit/routes
-  timeout-seconds: 5
-  mock: ${TMAP_MOCK:true}
-
-# ===========================
-# ODsay
-# ===========================
-odsay:
-  api-key: ${ODSAY_API_KEY}
-  base-url: https://api.odsay.com/v1/api
-  mock: ${ODSAY_MOCK:false}
 
 # ===========================
 # Security

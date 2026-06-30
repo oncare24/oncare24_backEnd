@@ -158,6 +158,10 @@ public class MedicationSourceQueryService {
     // 복호화된 복약 일정 응답 변환
     private MedicationScheduleSourceResponse toScheduleResponse(ScheduleEvent event) {
         MedicationSchedulePayload payload = event.payload();
+        // groupId 없는 과거(백필 전) 데이터는 scheduleId 단위 임시 그룹으로 노출 (누락 방지)
+        String groupId = payload.groupId() != null
+                ? payload.groupId()
+                : "legacy:" + payload.scheduleId();
         return new MedicationScheduleSourceResponse(
                 payload.scheduleId(),
                 payload.medicationName(),
@@ -170,7 +174,9 @@ public class MedicationSourceQueryService {
                 payload.active(),
                 event.occurredAt(),
                 payload.startDate(),   // 추가
-                payload.endDate()      // 추가
+                payload.endDate(),     // 추가
+                groupId,
+                payload.source()
         );
     }
 

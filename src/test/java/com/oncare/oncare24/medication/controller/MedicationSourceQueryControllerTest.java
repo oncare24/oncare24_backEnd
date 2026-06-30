@@ -28,33 +28,9 @@ class MedicationSourceQueryControllerTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    @Test
-    void findMedicationSchedulesReturnsSourceDtoWithoutCryptoFields() throws Exception {
-        MedicationSourceQueryService queryService = mock(MedicationSourceQueryService.class);
-        MedicationSourceQueryController controller = new MedicationSourceQueryController(queryService);
-        User elder = user(1L, UserRole.ELDER);
-        when(queryService.findMedicationSchedules(1L, 1L, false))
-                .thenReturn(List.of(new MedicationScheduleSourceResponse(
-                        10L,
-                        "morning pill",
-                        LocalTime.of(8, 0),
-                        30,
-                        60,
-                        MedicationScheduleType.DAILY,
-                        null,
-                        true,
-                        LocalDateTime.of(2026, 5, 11, 21, 30)
-                )));
-
-        ApiResponse<List<MedicationScheduleSourceResponse>> response =
-                controller.findMedicationSchedules(new CustomUserDetails(elder), 1L, false);
-
-        assertThat(response.isSuccess()).isTrue();
-        assertThat(response.getData()).hasSize(1);
-        assertThat(response.getData().get(0).scheduleId()).isEqualTo(10L);
-        verify(queryService).findMedicationSchedules(1L, 1L, false);
-        assertNoCryptoFields(response);
-    }
+    // NOTE: 봉지(DoseGroup) 모델 도입으로 GET /medication-schedules/source 는
+    // MedicationGroupController 로 이전됨(응답이 {groups:[...]} 형태). 해당 테스트는
+    // group controller 쪽으로 옮길 대상. 로그 조회 테스트만 유지.
 
     @Test
     void findMedicationLogsPassesDateAndReturnsSourceDtoWithoutCryptoFields() throws Exception {

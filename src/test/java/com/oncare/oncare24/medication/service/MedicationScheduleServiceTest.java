@@ -64,6 +64,15 @@ class MedicationScheduleServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private MedicationSourceQueryService sourceQueryService;
+
+    @Mock
+    private com.oncare.oncare24.notification.sender.FcmSender fcmSender;
+
+    @Mock
+    private CodefKeyHasher codefKeyHasher;
+
     private MedicationScheduleService medicationScheduleService;
 
     @BeforeEach
@@ -73,7 +82,10 @@ class MedicationScheduleServiceTest {
                 guardianWardRepository,
                 userRepository,
                 encryptedSourceEventService,
-                eventPublisher
+                eventPublisher,
+                sourceQueryService,
+                fcmSender,
+                codefKeyHasher
         );
     }
 

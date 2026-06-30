@@ -32,7 +32,8 @@ import java.time.LocalTime;
                 @Index(name = "idx_med_schedule_ward_active", columnList = "ward_id, is_active"),
                 @Index(name = "idx_med_schedule_ward_time", columnList = "ward_id, scheduled_time"),
                 @Index(name = "idx_med_schedule_ward_codef", columnList = "ward_id, codef_key_bidx"),
-                @Index(name = "idx_med_schedule_active_end", columnList = "is_active, end_date")
+                @Index(name = "idx_med_schedule_active_end", columnList = "is_active, end_date"),
+                @Index(name = "idx_med_schedule_ward_group", columnList = "ward_id, group_id")
         }
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -90,6 +91,13 @@ public class MedicationSchedule extends BaseTimeEntity {
     @Column(name = "codef_key_bidx", length = 64)
     private String codefKeyBidx;               // HMAC(처방번호_약품코드) 중복 방지용 블라인드 인덱스
 
+    @Column(name = "group_id", length = 100)
+    private String groupId;                     // 봉지(DoseGroup) 식별자. AUTO=codef:..., MANUAL=manual:uuid
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", length = 10)
+    private MedicationSource source;            // AUTO(CODEF) / MANUAL(수동)
+
     @Builder
     private MedicationSchedule(
             Long wardId,
@@ -101,7 +109,9 @@ public class MedicationSchedule extends BaseTimeEntity {
             MedicationScheduleType scheduleType,
             DayOfWeek dayOfWeek,
             LocalDate endDate,                 // ← 추가
-            String codefKeyBidx                // ← 추가
+            String codefKeyBidx,               // ← 추가
+            String groupId,                    // ← 봉지
+            MedicationSource source            // ← 출처
     ) {
         this.wardId = wardId;
         this.encryptedActivityLogId = encryptedActivityLogId;
@@ -113,6 +123,8 @@ public class MedicationSchedule extends BaseTimeEntity {
         this.dayOfWeek = dayOfWeek;
         this.endDate = endDate;                // ← 추가
         this.codefKeyBidx = codefKeyBidx;      // ← 추가
+        this.groupId = groupId;
+        this.source = source;
         this.active = true;
     }
 
@@ -126,6 +138,17 @@ public class MedicationSchedule extends BaseTimeEntity {
 
     public void updateEndDate(java.time.LocalDate endDate) {
         this.endDate = endDate;
+    }
+
+    /** 봉지 시각 이동(4-3)·생성 시점 시각 확정용. 평문 컬럼 갱신. */
+    public void updateScheduledTime(LocalTime scheduledTime) {
+        this.scheduledTime = scheduledTime;
+    }
+
+    /** 봉지 식별자/출처 보정(마이그레이션·생성 시). */
+    public void assignGroup(String groupId, MedicationSource source) {
+        this.groupId = groupId;
+        this.source = source;
     }
 
     public void linkEncryptedActivityLog(Long encryptedActivityLogId) {

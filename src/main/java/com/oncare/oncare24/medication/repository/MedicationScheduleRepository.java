@@ -13,6 +13,10 @@ public interface MedicationScheduleRepository extends JpaRepository<MedicationSc
 
     boolean existsByWardIdAndCodefKeyBidx(Long wardId, String codefKeyBidx);
 
+    List<MedicationSchedule> findByWardIdAndGroupId(Long wardId, String groupId);
+
+    List<MedicationSchedule> findByWardIdAndGroupIdAndActiveTrue(Long wardId, String groupId);
+
     List<MedicationSchedule> findByActiveTrueAndEndDateBefore(LocalDate date);
 
     Optional<MedicationSchedule> findByIdAndActiveTrue(Long id);

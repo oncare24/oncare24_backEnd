@@ -14,7 +14,9 @@ import com.oncare.oncare24.medication.dto.MedicationScheduleResponse;
 import com.oncare.oncare24.medication.dto.UpdateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
+import com.oncare.oncare24.medication.entity.MedicationSource;
 import com.oncare.oncare24.medication.repository.MedicationScheduleRepository;
+import java.util.UUID;
 import com.oncare.oncare24.user.entity.User;
 import com.oncare.oncare24.user.entity.UserRole;
 import com.oncare.oncare24.user.repository.UserRepository;
@@ -68,12 +70,16 @@ public class MedicationScheduleService {
         validateAllowanceMinutes(request.allowedEarlyMinutes(), request.allowedDelayMinutes());
         assertCanAccessWard(currentUserId, request.wardId());
 
+        // 수동 등록 = 약 1개가 한 봉지(group). 요일 row들이 같은 groupId를 공유.
+        String groupId = "manual:" + UUID.randomUUID();
         List<MedicationSchedule> savedSchedules = new ArrayList<>();
         List<MedicationSchedulePayload> savedPayloads = new ArrayList<>();
         for (DayOfWeek dayOfWeek : daysOfWeek) {
             MedicationSchedule saved = medicationScheduleRepository.save(MedicationSchedule.builder()
                     .wardId(request.wardId())
                     .endDate(request.endDate())   // ← 추가
+                    .groupId(groupId)
+                    .source(MedicationSource.MANUAL)
                     .build());
             MedicationSchedulePayload payload = schedulePayload(
                     "CREATED",
@@ -87,7 +93,9 @@ public class MedicationScheduleService {
                     dayOfWeek == null ? List.of() : List.of(dayOfWeek),
                     true,
                     request.startDate(),   // ← 추가
-                    request.endDate()      // ← 추가
+                    request.endDate(),     // ← 추가
+                    groupId,
+                    MedicationSource.MANUAL
             );
             // 복약 일정 원천 데이터를 암호화 이벤트로 저장
             EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(saved, payload);
@@ -176,6 +184,12 @@ public class MedicationScheduleService {
             oldByDay.put(old.dayOfWeek(), old);
         }
 
+        // 봉지 식별자 보존 — 같은 그룹의 모든 요일 row가 동일 groupId/source 유지
+        String groupId = current.getGroupId() != null
+                ? current.getGroupId() : "manual:" + UUID.randomUUID();
+        MedicationSource source = current.getSource() != null
+                ? current.getSource() : MedicationSource.MANUAL;
+
         List<MedicationSchedule> resultSchedules = new ArrayList<>();
         List<MedicationSchedulePayload> resultPayloads = new ArrayList<>();
 
@@ -187,9 +201,12 @@ public class MedicationScheduleService {
                     : medicationScheduleRepository.save(MedicationSchedule.builder()
                     .wardId(wardId)
                     .endDate(request.endDate())   // ← 추가
+                    .groupId(groupId)
+                    .source(source)
                     .build());
 
             target.updateEndDate(request.endDate());      // ← 추가 (재사용 row의 기간 갱신)
+            target.assignGroup(groupId, source);          // 재사용 row의 봉지 식별자 보정
 
             MedicationSchedulePayload payload = schedulePayload(
                     "CREATED",
@@ -203,7 +220,9 @@ public class MedicationScheduleService {
                     dow == null ? List.of() : List.of(dow),
                     true,
                     request.startDate(),   // ← 추가
-                    request.endDate()      // ← 추가
+                    request.endDate(),     // ← 추가
+                    groupId,
+                    source
             );
             target.activate();
             // 수정된 복약 일정 원천 데이터를 암호화 이벤트로 저장
@@ -303,7 +322,7 @@ public class MedicationScheduleService {
                 null, null);
     }
 
-    // 자동 등록(기간 약)이 쓰는 버전 — 시작일·종료일 포함
+    // 자동 등록(기간 약)이 쓰는 버전 — 시작일·종료일 포함 (group/source 없으면 null)
     private MedicationSchedulePayload schedulePayload(
             String action, Long scheduleId, String medicationName, java.time.LocalTime scheduledTime,
             Integer allowedEarlyMinutes, Integer allowedDelayMinutes,
@@ -311,11 +330,33 @@ public class MedicationScheduleService {
             List<DayOfWeek> daysOfWeek, boolean active,
             LocalDate startDate, LocalDate endDate
     ) {
+        return schedulePayload(action, scheduleId, medicationName, scheduledTime,
+                allowedEarlyMinutes, allowedDelayMinutes, scheduleType, dayOfWeek, daysOfWeek, active,
+                startDate, endDate, null, null);
+    }
+
+    // 봉지(groupId)·출처(source) 포함 버전 — 4장 봉지 모델
+    private MedicationSchedulePayload schedulePayload(
+            String action, Long scheduleId, String medicationName, java.time.LocalTime scheduledTime,
+            Integer allowedEarlyMinutes, Integer allowedDelayMinutes,
+            MedicationScheduleType scheduleType, java.time.DayOfWeek dayOfWeek,
+            List<DayOfWeek> daysOfWeek, boolean active,
+            LocalDate startDate, LocalDate endDate,
+            String groupId, MedicationSource source
+    ) {
         return new MedicationSchedulePayload(
                 action, scheduleId, medicationName, scheduledTime,
                 allowedEarlyMinutes != null ? allowedEarlyMinutes : 10,
                 allowedDelayMinutes != null ? allowedDelayMinutes : 30,
-                scheduleType, dayOfWeek, daysOfWeek, active, startDate, endDate);
+                scheduleType, dayOfWeek, daysOfWeek, active, startDate, endDate, groupId, source);
+    }
+
+    /** AUTO 봉지 groupId — 같은 처방(prescribeNo)은 같은 group. 처방번호 없으면 항상 새 group 발급. */
+    private String autoGroupId(String prescribeNo) {
+        if (prescribeNo != null && !prescribeNo.isBlank()) {
+            return "codef:rx:" + prescribeNo.trim();
+        }
+        return "codef:gen:" + UUID.randomUUID();
     }
 
     private MedicationSchedule getScheduleOrThrow(Long scheduleId) {
@@ -445,12 +486,17 @@ public class MedicationScheduleService {
                 continue;
             }
 
+            // AUTO 봉지: 같은 처방(prescribeNo)의 약·시각이 한 groupId로 묶임. 처방번호 없으면 새 group 발급.
+            String groupId = autoGroupId(item.prescribeNo());
+
             for (LocalTime time : defaultTimes(dailyDoses)) {
                 MedicationSchedule saved = medicationScheduleRepository.save(
                         MedicationSchedule.builder()
                                 .wardId(wardId)
                                 .endDate(endDate)
                                 .codefKeyBidx(codefKeyBidx)
+                                .groupId(groupId)
+                                .source(MedicationSource.AUTO)
                                 .build()
                 );
                 MedicationSchedulePayload payload = schedulePayload(
@@ -465,7 +511,9 @@ public class MedicationScheduleService {
                         List.of(),
                         true,
                         startDate,   // ← 추가
-                        endDate      // ← 추가
+                        endDate,     // ← 추가
+                        groupId,
+                        MedicationSource.AUTO
                 );
                 // CODEF 처방 복약 일정을 암호화 이벤트로 저장
                 EncryptedActivityLog encryptedLog = saveEncryptedScheduleEvent(saved, payload);

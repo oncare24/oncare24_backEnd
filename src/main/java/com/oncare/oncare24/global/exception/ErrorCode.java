@@ -16,7 +16,6 @@ import org.springframework.http.HttpStatus;
  *     <li>S0xx - 안전 구역 (SafeZone)</li>
  *     <li>L0xx - 위치/모니터링 (Location)</li>
  *     <li>M0xx - 복약 (Medication)</li>
- *     <li>H0xx - 병원/문진 (Hospital)</li>
  *     <li>N0xx - 알림 (Notification)</li>
  * </ul>
  * 새 도메인 추가 시 prefix를 정해 일관성 있게 추가합니다.
@@ -94,11 +93,7 @@ public enum ErrorCode {
     DRUG_ANALYSIS_CODEF_CONFIRM_FAILED(HttpStatus.BAD_GATEWAY, "D003", "처방전 조회에 실패했어요. 카카오톡 인증을 다시 시도해 주세요."),
     DRUG_ANALYSIS_SERVER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "D004", "복약 분석 서버에 일시적으로 연결할 수 없어요."),
     DRUG_ANALYSIS_INVALID_RESPONSE(HttpStatus.BAD_GATEWAY, "D005", "복약 분석 서버 응답을 처리할 수 없어요."),
-    DRUG_ANALYSIS_ACCESS_DENIED(HttpStatus.FORBIDDEN, "D006", "이 분석 결과에 접근할 권한이 없어요."),
-
-    // === 길안내 (V0xx) ===
-    NAVIGATION_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "V001", "길안내 서비스에 일시적 문제가 발생했습니다."),
-    NO_TRANSIT_ROUTE(HttpStatus.NOT_FOUND, "V002", "대중교통 경로를 찾을 수 없습니다. 거리가 너무 가까울 수 있어요.");
+    DRUG_ANALYSIS_ACCESS_DENIED(HttpStatus.FORBIDDEN, "D006", "이 분석 결과에 접근할 권한이 없어요.");
 // ↑ 마지막은 세미콜론
 
 

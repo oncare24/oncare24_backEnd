@@ -7,8 +7,10 @@ import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
 import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.guardian.entity.GuardianWardStatus;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
+import com.oncare.oncare24.medication.dto.AutoRegisterResult;
 import com.oncare.oncare24.medication.dto.CreateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
+import com.oncare.oncare24.medication.dto.PrescriptionImportItem;
 import com.oncare.oncare24.medication.dto.MedicationScheduleResponse;
 import com.oncare.oncare24.medication.dto.UpdateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
@@ -40,6 +42,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class MedicationScheduleServiceTest {
@@ -391,6 +394,25 @@ class MedicationScheduleServiceTest {
         assertThat(response.scheduleIds()).containsExactly(SCHEDULE_ID, SCHEDULE_ID + 1);
         assertThat(response.daysOfWeek()).containsExactly(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY);
         verify(medicationScheduleRepository, times(2)).save(any(MedicationSchedule.class));
+    }
+
+    @Test
+    void autoRegister_deduplicatesViaFallback_whenCodefKeyNull() {
+        // 처방번호/약품코드가 없어 hash()는 null → hashFallback 키로 중복 검사해야 함.
+        // (기존엔 null이면 가드를 스킵해 재분석마다 중복 등록되던 버그)
+        when(codefKeyHasher.hash(any(), any())).thenReturn(null);
+        when(codefKeyHasher.hashFallback(any(), any(), any())).thenReturn("fb-key");
+        when(medicationScheduleRepository.existsByWardIdAndCodefKeyBidx(WARD_ID, "fb-key"))
+                .thenReturn(true);
+
+        AutoRegisterResult result = medicationScheduleService.autoRegisterFromPrescriptions(
+                WARD_ID,
+                List.of(new PrescriptionImportItem(
+                        "타이레놀", "3", "5", "20260601", null, null)));
+
+        assertThat(result.duplicates()).containsExactly("타이레놀");
+        assertThat(result.registered()).isEmpty();
+        verify(medicationScheduleRepository, never()).save(any());
     }
 
     private void verifyMedicationRefreshEventPublished() {

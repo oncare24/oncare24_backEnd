@@ -480,8 +480,13 @@ public class MedicationScheduleService {
             // (원래: startDate = parseYmd(item.manufactureDate()); endDate = startDate.plusDays(totalDays - 1L);)
 
             String codefKeyBidx = codefKeyHasher.hash(item.prescribeNo(), item.drugCode());
-            if (codefKeyBidx != null
-                    && medicationScheduleRepository.existsByWardIdAndCodefKeyBidx(wardId, codefKeyBidx)) {
+            if (codefKeyBidx == null) {
+                // 처방번호/약품코드 누락 시: 약명+조제일+횟수 기반 대체 키로 중복 차단.
+                // (기존엔 null이면 가드를 스킵해 재분석마다 중복 등록되던 버그)
+                codefKeyBidx = codefKeyHasher.hashFallback(
+                        name, item.manufactureDate(), item.dailyDosesNumber());
+            }
+            if (medicationScheduleRepository.existsByWardIdAndCodefKeyBidx(wardId, codefKeyBidx)) {
                 duplicates.add(name);   // 같은 처방-약 이미 등록됨
                 continue;
             }

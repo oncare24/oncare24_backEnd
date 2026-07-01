@@ -3,7 +3,9 @@ package com.oncare.oncare24.medication.service;
 import com.oncare.oncare24.analysis.entity.EncryptedActivityLog;
 import com.oncare.oncare24.analysis.event.MedicationAnalysisRefreshRequestedEvent;
 import com.oncare.oncare24.analysis.service.EncryptedSourceEventService;
+import com.oncare.oncare24.global.exception.CustomException;
 import com.oncare.oncare24.guardian.repository.GuardianWardRepository;
+import com.oncare.oncare24.medication.dto.MedicationPacketCreateRequest;
 import com.oncare.oncare24.medication.dto.MedicationScheduleSourceResponse;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -98,6 +101,68 @@ class MedicationGroupCommandServiceTest {
         verify(encryptedSourceEventService, times(2))
                 .saveRequiredSourceEvent(any(), any(), any(), any(), any(), any());
         verify(eventPublisher).publishEvent(any(MedicationAnalysisRefreshRequestedEvent.class));
+    }
+
+    @Test
+    void addPacket_manual_createsScheduleForNewTime() {
+        String group = "manual:g1";
+        when(sourceQueryService.findMedicationSchedules(WARD_ID, WARD_ID, false))
+                .thenReturn(List.of(row(201L, "복통약", LocalTime.of(8, 0), group, MedicationSource.MANUAL)));
+        when(medicationScheduleRepository.save(any(MedicationSchedule.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        EncryptedActivityLog enc = encLog(910L);
+        when(encryptedSourceEventService.saveRequiredSourceEvent(any(), any(), any(), any(), any(), any()))
+                .thenReturn(enc);
+
+        service.addPacket(WARD_ID, WARD_ID, group,
+                new MedicationPacketCreateRequest(
+                        LocalTime.of(20, 0), MedicationScheduleType.DAILY, List.of(),
+                        null, null, null, null));
+
+        verify(medicationScheduleRepository).save(any(MedicationSchedule.class));
+        verify(eventPublisher).publishEvent(any(MedicationAnalysisRefreshRequestedEvent.class));
+    }
+
+    @Test
+    void addPacket_auto_rejectedAsNotEditable() {
+        when(sourceQueryService.findMedicationSchedules(WARD_ID, WARD_ID, false))
+                .thenReturn(List.of(row(101L, "암로디핀", LocalTime.of(8, 0), GROUP_ID, MedicationSource.AUTO)));
+
+        assertThatThrownBy(() -> service.addPacket(WARD_ID, WARD_ID, GROUP_ID,
+                new MedicationPacketCreateRequest(
+                        LocalTime.of(20, 0), MedicationScheduleType.DAILY, List.of(),
+                        null, null, null, null)))
+                .isInstanceOf(CustomException.class);
+        verify(medicationScheduleRepository, never()).save(any());
+    }
+
+    @Test
+    void renameGroup_manual_reissuesEventsWithNewName() {
+        String group = "manual:g1";
+        when(sourceQueryService.findMedicationSchedules(WARD_ID, WARD_ID, false))
+                .thenReturn(List.of(row(201L, "복통약", LocalTime.of(8, 0), group, MedicationSource.MANUAL)));
+        MedicationSchedule s = MedicationSchedule.builder()
+                .wardId(WARD_ID).scheduledTime(LocalTime.of(8, 0))
+                .groupId(group).source(MedicationSource.MANUAL).build();
+        when(medicationScheduleRepository.findById(201L)).thenReturn(Optional.of(s));
+        EncryptedActivityLog enc = encLog(920L);
+        when(encryptedSourceEventService.saveRequiredSourceEvent(any(), any(), any(), any(), any(), any()))
+                .thenReturn(enc);
+
+        service.renameGroup(WARD_ID, WARD_ID, group, "속쓰림약");
+
+        verify(encryptedSourceEventService)
+                .saveRequiredSourceEvent(any(), any(), any(), any(), any(), any());
+        verify(eventPublisher).publishEvent(any(MedicationAnalysisRefreshRequestedEvent.class));
+    }
+
+    private MedicationScheduleSourceResponse row(
+            Long scheduleId, String name, LocalTime time, String groupId, MedicationSource source) {
+        return new MedicationScheduleSourceResponse(
+                scheduleId, name, time, 10, 30,
+                MedicationScheduleType.DAILY, null, List.of(), true,
+                LocalDateTime.of(2026, 7, 1, 9, 0), null, null,
+                groupId, source);
     }
 
     private MedicationScheduleSourceResponse sourceRow(Long scheduleId, String name, LocalTime time) {

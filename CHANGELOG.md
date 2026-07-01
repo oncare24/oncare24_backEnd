@@ -35,6 +35,30 @@
 
 ---
 
+## 2026-07-01 · CODEF 자동등록 중복 방지 — codefKey null 대체 키(fallback)
+
+### 무엇을 / 왜
+처방번호/약품코드가 없는 약은 `CodefKeyHasher.hash()`가 null을 반환 →
+`autoRegisterFromPrescriptions`가 중복 검사를 스킵해 재분석마다 중복 등록되던 버그.
+봉지 모델 도입 목적(제안서 1장의 두 근본 원인: 시각 잔존 + 중복) 중 남은 "중복"을 해소.
+
+### 변경
+- `CodefKeyHasher.hashFallback(drugName, manufactureDate, dailyDoses)` 추가 — 처방번호/약품코드가
+  없을 때 약명+조제일+1일횟수 기반 안정적 대체 키(HMAC-SHA256). 재분석 시 동일 입력이면 같은 키가 되어
+  중복 차단. 정상 키와 입력 형식이 달라 충돌하지 않음. `hash()`는 공통 `hmacHex()`로 리팩터.
+- `MedicationScheduleService.autoRegisterFromPrescriptions`: `codefKeyBidx`가 null이면 `hashFallback`으로
+  대체해, 항상 `existsByWardIdAndCodefKeyBidx` 중복 검사를 수행.
+
+### 영향 범위
+- `CodefKeyHasher`, `MedicationScheduleService` (medication 도메인). API/스키마/설정 변경 없음.
+
+### 검증
+- `./gradlew compileJava` 통과.
+- `CodefKeyHasherTest`(신규), `MedicationScheduleServiceTest`(autoRegister dedup 케이스 추가),
+  `MedicationGroupCommandServiceTest` 통과.
+
+---
+
 ## 2026-06-30 · 복약 일정 봉지(DoseGroup) 모델 도입 (4장 API 계약)
 
 ### 무엇을 / 왜

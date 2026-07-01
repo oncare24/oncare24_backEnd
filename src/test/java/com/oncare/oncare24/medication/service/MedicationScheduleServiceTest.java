@@ -12,6 +12,7 @@ import com.oncare.oncare24.medication.dto.CreateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.dto.MedicationSchedulePayload;
 import com.oncare.oncare24.medication.dto.PrescriptionImportItem;
 import com.oncare.oncare24.medication.dto.MedicationScheduleResponse;
+import com.oncare.oncare24.medication.dto.MedicationScheduleSourceResponse;
 import com.oncare.oncare24.medication.dto.UpdateMedicationScheduleRequest;
 import com.oncare.oncare24.medication.entity.MedicationSchedule;
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
@@ -241,13 +242,24 @@ class MedicationScheduleServiceTest {
         )).isInstanceOf(CustomException.class);
     }
 
-    @org.junit.jupiter.api.Disabled("update가 sourceQueryService 기반으로 재설계된 뒤 미갱신된 stale 테스트 — "
-            + "기대값이 옛 동작(request 값 반환) 기준. update 도메인 별도 정리 필요(봉지 작업과 무관).")
     @Test
-    void update_succeedsAndChangesActiveState() {
+    void update_deactivatesGroupWhenActiveFalse() {
+        // active=false 요청이면 현재 update는 sourceQueryService로 그룹을 찾아
+        // 그룹 전체를 비활성화(암호화 DEACTIVATED 이벤트)한다.
         MedicationSchedule schedule = schedule();
         stubUser(WARD_ID, UserRole.ELDER);
         when(medicationScheduleRepository.findById(SCHEDULE_ID)).thenReturn(Optional.of(schedule));
+        when(sourceQueryService.findMedicationSchedules(WARD_ID, WARD_ID, false))
+                .thenReturn(List.of(new MedicationScheduleSourceResponse(
+                        SCHEDULE_ID,
+                        "혈압약",
+                        LocalTime.of(8, 0),
+                        10,
+                        30,
+                        MedicationScheduleType.DAILY,
+                        null,
+                        true,
+                        java.time.LocalDateTime.now())));
         when(encryptedSourceEventService.saveRequiredSourceEvent(
                 eq(WARD_ID),
                 eq(ActivityEventType.MEDICATION_EVENT),
@@ -257,14 +269,14 @@ class MedicationScheduleServiceTest {
                 any()
         )).thenReturn(encryptedLog(902L));
 
-        MedicationScheduleResponse response = medicationScheduleService.update(
+        medicationScheduleService.update(
                 WARD_ID,
                 SCHEDULE_ID,
                 new UpdateMedicationScheduleRequest(
-                        "evening pill",
-                        LocalTime.of(20, 0),
-                        5,
-                        60,
+                        "혈압약",
+                        LocalTime.of(8, 0),
+                        10,
+                        30,
                         MedicationScheduleType.DAILY,
                         null,
                         null,
@@ -274,16 +286,7 @@ class MedicationScheduleServiceTest {
                 )
         );
 
-        assertThat(response.medicationName()).isEqualTo("evening pill");
-        assertThat(response.allowedEarlyMinutes()).isEqualTo(5);
-        assertThat(response.allowedDelayMinutes()).isEqualTo(60);
-        assertThat(response.active()).isFalse();
-        assertThat(schedule.getMedicationName()).isNull();
-        assertThat(schedule.getScheduledTime()).isNull();
-        assertThat(schedule.getAllowedEarlyMinutes()).isNull();
-        assertThat(schedule.getAllowedDelayMinutes()).isNull();
-        assertThat(schedule.getScheduleType()).isNull();
-        assertThat(schedule.getDayOfWeek()).isNull();
+        assertThat(schedule.isActive()).isFalse();
         assertThat(schedule.getEncryptedActivityLogId()).isEqualTo(902L);
         verifyMedicationRefreshEventPublished();
     }

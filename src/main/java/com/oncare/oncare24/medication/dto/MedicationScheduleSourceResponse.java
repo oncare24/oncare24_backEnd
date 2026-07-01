@@ -1,6 +1,7 @@
 package com.oncare.oncare24.medication.dto;
 
 import com.oncare.oncare24.medication.entity.MedicationScheduleType;
+import com.oncare.oncare24.medication.entity.MedicationSource;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.DayOfWeek;
@@ -33,7 +34,11 @@ public record MedicationScheduleSourceResponse(
         @Schema(description = "복약 시작일(기간 약). 없으면 null", example = "2026-05-18")
         LocalDate startDate,   // 추가
         @Schema(description = "복약 종료일(기간 약). 없으면 null", example = "2026-05-22")
-        LocalDate endDate      // 추가
+        LocalDate endDate,     // 추가
+        @Schema(description = "봉지(DoseGroup) 식별자", example = "codef:rx:Rx20260601-001")
+        String groupId,
+        @Schema(description = "출처 (AUTO=CODEF 자동, MANUAL=수동)", example = "MANUAL")
+        MedicationSource source
 ) {
     public MedicationScheduleSourceResponse(
             Long scheduleId,
@@ -48,6 +53,25 @@ public record MedicationScheduleSourceResponse(
     ) {
         this(scheduleId, medicationName, scheduledTime, allowedEarlyMinutes, allowedDelayMinutes,
                 scheduleType, dayOfWeek, dayOfWeek == null ? List.of() : List.of(dayOfWeek),
-                active, lastChangedAt, null, null);
+                active, lastChangedAt, null, null, null, null);
+    }
+
+    // start/end 까지만 채우는 호환 생성자 (group/source 없으면 null)
+    public MedicationScheduleSourceResponse(
+            Long scheduleId,
+            String medicationName,
+            LocalTime scheduledTime,
+            Integer allowedEarlyMinutes,
+            Integer allowedDelayMinutes,
+            MedicationScheduleType scheduleType,
+            DayOfWeek dayOfWeek,
+            List<DayOfWeek> daysOfWeek,
+            boolean active,
+            LocalDateTime lastChangedAt,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        this(scheduleId, medicationName, scheduledTime, allowedEarlyMinutes, allowedDelayMinutes,
+                scheduleType, dayOfWeek, daysOfWeek, active, lastChangedAt, startDate, endDate, null, null);
     }
 }

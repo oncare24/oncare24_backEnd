@@ -80,6 +80,7 @@ public enum ErrorCode {
     MEDICATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "M002", "복약 정보에 접근할 권한이 없습니다."),
     INVALID_MEDICATION_REQUEST(HttpStatus.BAD_REQUEST, "M003", "복약 요청 값이 올바르지 않습니다."),
     MEDICATION_LOG_NOT_FOUND(HttpStatus.NOT_FOUND, "M004", "복약 기록을 찾을 수 없습니다."),
+    MEDICATION_GROUP_NOT_EDITABLE(HttpStatus.BAD_REQUEST, "M005", "이 봉지는 편집할 수 없어요. (자동 등록 처방)"),
 
     // === 카카오 로컬 검색 (Step 11) ===
     KAKAO_SEARCH_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "K001", "주소 검색에 실패했어요. 잠시 후 다시 시도해주세요."),

@@ -5,8 +5,10 @@ import com.oncare.oncare24.global.response.ApiResponse;
 import com.oncare.oncare24.medication.dto.CreateMedicationGroupRequest;
 import com.oncare.oncare24.medication.dto.MedicationGroupListResponse;
 import com.oncare.oncare24.medication.dto.MedicationGroupResponse;
+import com.oncare.oncare24.medication.dto.MedicationPacketCreateRequest;
 import com.oncare.oncare24.medication.dto.MovePacketTimeRequest;
 import com.oncare.oncare24.medication.dto.TodayMedicationResponse;
+import com.oncare.oncare24.medication.dto.UpdateGroupNameRequest;
 import com.oncare.oncare24.medication.dto.UpdatePacketRequest;
 import com.oncare.oncare24.medication.service.MedicationGroupCommandService;
 import com.oncare.oncare24.medication.service.MedicationGroupQueryService;
@@ -21,6 +23,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -172,6 +175,40 @@ public class MedicationGroupController {
     ) {
         medicationGroupCommandService.deletePacket(
                 userDetails.getUserId(), wardId, groupId, LocalTime.parse(scheduledTime));
+        return ApiResponse.success();
+    }
+
+    @PostMapping("/medication-schedules/groups/{groupId}/packets")
+    @Operation(
+            summary = "봉지에 시각(packet) 추가 (MANUAL 전용)",
+            description = "기존 봉지에 새 복용 시각을 추가한다. 약명은 봉지의 기존 약명을 상속. "
+                    + "AUTO(CODEF 자동) 봉지는 편집 불가(M005)."
+    )
+    public ApiResponse<Void> addPacket(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @PathVariable Long wardId,
+            @Parameter(description = "봉지 식별자", example = "manual:6b1f-ab")
+            @PathVariable String groupId,
+            @Valid @RequestBody MedicationPacketCreateRequest request
+    ) {
+        medicationGroupCommandService.addPacket(userDetails.getUserId(), wardId, groupId, request);
+        return ApiResponse.success();
+    }
+
+    @PatchMapping("/medication-schedules/groups/{groupId}")
+    @Operation(
+            summary = "봉지 이름 변경 (MANUAL 전용)",
+            description = "봉지(약)의 이름을 변경한다. AUTO(CODEF 자동) 봉지는 편집 불가(M005)."
+    )
+    public ApiResponse<Void> renameGroup(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @PathVariable Long wardId,
+            @Parameter(description = "봉지 식별자", example = "manual:6b1f-ab")
+            @PathVariable String groupId,
+            @Valid @RequestBody UpdateGroupNameRequest request
+    ) {
+        medicationGroupCommandService.renameGroup(
+                userDetails.getUserId(), wardId, groupId, request.medicationName());
         return ApiResponse.success();
     }
 }

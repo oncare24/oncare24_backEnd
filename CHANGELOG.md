@@ -8,6 +8,33 @@
 
 ---
 
+## 2026-07-01 · 봉지 편집 API 신설 — packet 추가 / 이름 변경 (MANUAL)
+
+### 무엇을 / 왜
+편집 전면 봉지화를 위해 기존 봉지 API에 없던 두 기능을 추가. 프론트 편집이 평면 CRUD 없이
+봉지 API만으로 동작하도록 하는 백엔드 기반(편집 전면 봉지화 1단계 — 백엔드).
+
+### 신규 API
+- `POST /api/wards/{wardId}/medication-schedules/groups/{groupId}/packets` — 봉지에 시각 추가.
+  약명은 group의 기존 약명을 상속, 요일별 row 생성. **MANUAL만**(AUTO는 M005).
+- `PATCH /api/wards/{wardId}/medication-schedules/groups/{groupId}` `{medicationName}` — 봉지 이름 변경.
+  group의 모든 활성 성분 이름 갱신(시각/요일/기간 유지). **MANUAL만**(AUTO는 M005).
+
+### 편집 정책
+- AUTO(CODEF 자동) 봉지는 시각 이동(4-3)/삭제(4-6)만 허용, **시각 추가·이름 변경은 잠금**.
+- `ErrorCode.MEDICATION_GROUP_NOT_EDITABLE`(M005, 400) 추가.
+
+### 영향 범위
+- `MedicationGroupCommandService`(`addPacket`/`renameGroup` + `groupRows`/`assertManual` 헬퍼),
+  `MedicationGroupController`(POST packets, PATCH group), `UpdateGroupNameRequest` 신규, `ErrorCode` M005.
+- 기존 API/동작 변경 없음(추가만).
+
+### 검증
+- `./gradlew compileJava` 통과.
+- `MedicationGroupCommandServiceTest`에 addPacket(MANUAL 성공/AUTO 거부), renameGroup 케이스 추가 — 통과.
+
+---
+
 ## 2026-06-30 · 복약 일정 봉지(DoseGroup) 모델 도입 (4장 API 계약)
 
 ### 무엇을 / 왜

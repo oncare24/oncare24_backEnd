@@ -193,7 +193,71 @@ public class MedicationGroupCommandService {
                 wardId, groupId, scheduledTime, targets.size());
     }
 
+    /** 봉지에 시각(packet) 추가 — MANUAL만. 약명은 group의 기존 약명을 상속. */
+    @Transactional
+    public void addPacket(Long currentUserId, Long wardId, String groupId,
+                          MedicationPacketCreateRequest packet) {
+        List<MedicationScheduleSourceResponse> rows = groupRows(currentUserId, wardId, groupId);
+        assertManual(groupId, rows.get(0));
+        String medicationName = rows.get(0).medicationName();
+
+        List<DayOfWeek> days = normalizeDays(packet.scheduleType(), packet.daysOfWeek());
+        for (DayOfWeek dow : days) {
+            MedicationSchedule s = medicationScheduleRepository.save(MedicationSchedule.builder()
+                    .wardId(wardId)
+                    .scheduledTime(packet.scheduledTime())
+                    .endDate(packet.endDate())
+                    .groupId(groupId)
+                    .source(MedicationSource.MANUAL)
+                    .build());
+            saveCreatedEvent(s, medicationName, packet.scheduledTime(),
+                    packet.allowedEarlyMinutes(), packet.allowedDelayMinutes(),
+                    packet.scheduleType(), dow, dow == null ? List.of() : List.of(dow),
+                    packet.startDate(), packet.endDate(), groupId, MedicationSource.MANUAL);
+        }
+        eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(wardId));
+        log.info("[MED-GROUP] addPacket ward={} group={} time={}", wardId, groupId, packet.scheduledTime());
+    }
+
+    /** 봉지 이름 변경 — MANUAL만. group의 모든 활성 성분 이름을 갱신(시각/요일/기간 유지). */
+    @Transactional
+    public void renameGroup(Long currentUserId, Long wardId, String groupId, String medicationName) {
+        List<MedicationScheduleSourceResponse> rows = groupRows(currentUserId, wardId, groupId);
+        MedicationSource source = assertManual(groupId, rows.get(0));
+        for (MedicationScheduleSourceResponse r : rows) {
+            MedicationSchedule s = getSchedule(r.scheduleId());
+            s.assignGroup(groupId, source);
+            saveCreatedEvent(s, medicationName, r.scheduledTime(),
+                    r.allowedEarlyMinutes(), r.allowedDelayMinutes(), r.scheduleType(),
+                    r.dayOfWeek(), r.daysOfWeek(), r.startDate(), r.endDate(), groupId, source);
+        }
+        eventPublisher.publishEvent(new MedicationAnalysisRefreshRequestedEvent(wardId));
+        log.info("[MED-GROUP] renameGroup ward={} group={} name={}", wardId, groupId, medicationName);
+    }
+
     // ── 내부 헬퍼 ──
+
+    /** groupId에 해당하는 활성 원천 row 전체. 없으면 404. 권한 체크 포함(sourceQuery). */
+    private List<MedicationScheduleSourceResponse> groupRows(
+            Long currentUserId, Long wardId, String groupId) {
+        List<MedicationScheduleSourceResponse> rows =
+                sourceQueryService.findMedicationSchedules(currentUserId, wardId, false).stream()
+                        .filter(r -> Objects.equals(r.groupId(), groupId))
+                        .toList();
+        if (rows.isEmpty()) {
+            throw new CustomException(ErrorCode.MEDICATION_SCHEDULE_NOT_FOUND);
+        }
+        return rows;
+    }
+
+    /** MANUAL 봉지만 편집(이름 변경/시각 추가) 허용. AUTO면 M005. 통과 시 source 반환. */
+    private MedicationSource assertManual(String groupId, MedicationScheduleSourceResponse rep) {
+        MedicationSource source = resolveSource(groupId, rep);
+        if (source != MedicationSource.MANUAL) {
+            throw new CustomException(ErrorCode.MEDICATION_GROUP_NOT_EDITABLE);
+        }
+        return source;
+    }
 
     /** (groupId, scheduledTime)에 해당하는 활성 원천 row. 없으면 404. 권한 체크 포함(sourceQuery). */
     private List<MedicationScheduleSourceResponse> packetRows(
